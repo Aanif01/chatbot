@@ -68,16 +68,43 @@ async function refresh() {
     for (const message of messages) showMessage(message);
     if (!liveConnection) statusNode.textContent = "Encrypted · Checking for messages every 2 seconds";
   } catch (error) {
+    if (error.message === "Room not found or expired") {
+      cleanRoom("This conversation has ended. Its link and messages have been cleared from this page.");
+      return;
+    }
     statusNode.textContent = error.message;
     clearInterval(pollTimer);
   }
 }
 function showRoom({ share = false } = {}) {
+  $("notice").classList.add("hidden");
   welcome.classList.add("hidden");
   chat.classList.remove("hidden");
   if (share) $("shareBox").classList.remove("hidden");
   refresh();
   startUpdates();
+}
+function cleanRoom(message) {
+  clearInterval(pollTimer);
+  pollTimer = undefined;
+  const oldSocket = socket;
+  socket = undefined;
+  liveConnection = false;
+  roomId = undefined;
+  key = undefined;
+  oldSocket?.close();
+  history.replaceState(null, "", location.pathname);
+  messagesNode.replaceChildren();
+  seen.clear();
+  $("shareLink").value = "";
+  $("message").value = "";
+  $("expiry").textContent = "";
+  $("shareBox").classList.add("hidden");
+  statusNode.textContent = "";
+  chat.classList.add("hidden");
+  welcome.classList.remove("hidden");
+  $("notice").textContent = message;
+  $("notice").classList.remove("hidden");
 }
 function startUpdates() {
   if (pollTimer) clearInterval(pollTimer);
@@ -92,6 +119,12 @@ function startUpdates() {
     let frame;
     try { frame = JSON.parse(event.data); } catch { return; }
     if (frame.type === "message") showMessage(frame.message);
+    if (frame.type === "ended") {
+      const notice = frame.reason === "expired"
+        ? "This conversation expired. Its link and messages have been cleared from this page."
+        : "This conversation was discarded. Its link and messages have been cleared from this page.";
+      cleanRoom(notice);
+    }
     if (frame.type === "error") statusNode.textContent = frame.error;
   });
   socket.addEventListener("close", () => {
@@ -152,12 +185,7 @@ $("sendForm").addEventListener("submit", async (event) => {
 $("discard").addEventListener("click", async () => {
   if (!confirm("Discard this room and delete its messages from server memory?")) return;
   try { await api(`/api/rooms/${roomId}`, { method: "DELETE" }); }
-  finally {
-    clearInterval(pollTimer);
-    socket?.close();
-    history.replaceState(null, "", location.pathname);
-    location.reload();
-  }
+  finally { cleanRoom("This conversation was discarded. Its link and messages have been cleared from this page."); }
 });
 
 const fragment = location.hash.slice(1);

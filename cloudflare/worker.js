@@ -88,7 +88,7 @@ export class ChatRoom extends DurableObject {
       return json(await this.storeAndBroadcast(payload), 201);
     }
     if (request.method === "DELETE" && /^\/api\/rooms\/[^/]+$/.test(url.pathname)) {
-      this.closeSockets("Room discarded");
+      this.endRoom("discarded");
       await this.ctx.storage.deleteAll();
       return json({ deleted: true });
     }
@@ -106,7 +106,7 @@ export class ChatRoom extends DurableObject {
     const row = this.ctx.storage.sql.exec("SELECT expires_at FROM room_meta WHERE id = 1").toArray()[0];
     if (!row) return undefined;
     if (row.expires_at <= Date.now()) {
-      this.closeSockets("Room expired");
+      this.endRoom("expired");
       await this.ctx.storage.deleteAll();
       return undefined;
     }
@@ -192,8 +192,18 @@ export class ChatRoom extends DurableObject {
     }
   }
 
+  endRoom(reason) {
+    const frame = JSON.stringify({ type: "ended", reason });
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.send(frame);
+        socket.close(1000, reason === "discarded" ? "Room discarded" : "Room expired");
+      } catch { /* already closed */ }
+    }
+  }
+
   async alarm() {
-    this.closeSockets("Room expired");
+    this.endRoom("expired");
     await this.ctx.storage.deleteAll();
   }
 }
