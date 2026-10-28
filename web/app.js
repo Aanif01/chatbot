@@ -110,6 +110,7 @@ function showRoom({ share = false } = {}) {
   $("roomContent").classList.add("hidden");
   $("displayName").value = displayName;
   $("roomAction").textContent = ownerPrivateKey ? "Discard room" : "Leave room";
+  $("ownerDiscard").classList.toggle("hidden", !ownerPrivateKey);
 }
 function cleanRoom(message, { keepFragment = false } = {}) {
   clearInterval(pollTimer);
@@ -133,6 +134,7 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   $("participantCount").textContent = "0 here";
   $("participants").textContent = "";
   $("discardConfirm").classList.add("hidden");
+  $("ownerDiscard").classList.add("hidden");
   $("identity").classList.remove("hidden");
   $("roomContent").classList.add("hidden");
   $("shareLink").value = "";
@@ -300,6 +302,10 @@ $("roomAction").addEventListener("click", async () => {
     cleanRoom("You left the conversation on this device. The room is still open for others.");
     return;
   }
+  $("discardConfirm").classList.remove("hidden");
+});
+
+$("ownerDiscard").addEventListener("click", () => {
   $("discardConfirm").classList.remove("hidden");
 });
 

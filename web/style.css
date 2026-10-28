@@ -46,6 +46,7 @@ button:disabled { opacity: .65; cursor: wait; }
 .fine { color: #89978f !important; font-size: 11px !important; line-height: 1.55 !important; }
 .hidden { display: none !important; }
 .identity { display: grid; gap: 10px; }
+.identity-actions { display: flex; justify-content: flex-end; }
 .identity label { color: #334d40; font-size: 13px; font-weight: 700; }
 .identity input { flex: 1; min-width: 0; padding: 11px 12px; border: 1px solid #dce5de; border-radius: 9px; color: var(--ink); font: inherit; font-size: 13px; }
 .participant-count { padding: 4px 8px; border-radius: 999px; background: #edf5ee; color: #4f755f; font-size: 10px; font-weight: 650; letter-spacing: 0; white-space: nowrap; }
