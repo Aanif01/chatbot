@@ -37,9 +37,9 @@ async function decrypt(message) {
   const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(message.nonce) }, key, base64ToBytes(message.ciphertext));
   return decoder.decode(plaintext);
 }
-function configureRoom(id, rawKey) {
+async function configureRoom(id, rawKey) {
   roomId = id;
-  return crypto.subtle.importKey("raw", base64ToBytes(rawKey), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  key = await crypto.subtle.importKey("raw", base64ToBytes(rawKey), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 function showMessage(message) {
   if (seen.has(message.id)) return;
