@@ -23,11 +23,11 @@
       <form id="identity" class="identity">
         <label for="displayName">Choose the name others will see</label>
         <div class="share-row"><input id="displayName" maxlength="24" autocomplete="nickname" placeholder="Your name" required><button id="join">Join conversation</button></div>
-        <p class="fine">Everyone in this room can see this name. It is not an identity check.</p>
+        <p class="fine">Everyone in the room and the chat service can see this name while you’re connected. It is not an identity check.</p>
       </form>
       <div id="roomContent" class="hidden">
-        <div class="room-head"><div><h2>Conversation <span id="participantCount" class="participant-count">0 here</span></h2><p id="participants" class="fine">Live participants appear here</p><p id="expiry" class="fine"></p></div><div class="room-actions"><button id="changeName" class="quiet">Your name</button><button id="discard" class="quiet danger">Discard room</button></div></div>
-        <div id="shareBox" class="share hidden"><label for="shareLink">Share this link privately</label><div class="share-row"><input id="shareLink" readonly><button id="copy">Copy</button></div><p class="fine">The key is in the link fragment. The server never receives it.</p></div>
+        <div class="room-head"><div><h2>Conversation <span id="participantCount" class="participant-count">0 here</span></h2><p id="participants" class="fine">Live participants appear here</p><p id="expiry" class="fine"></p></div><div class="room-actions"><button id="changeName" class="quiet">Your name</button><button id="roomAction" class="quiet danger">Leave room</button></div></div>
+        <div id="shareBox" class="share hidden"><label for="shareLink">Share this invitation link privately</label><div class="share-row"><input id="shareLink" readonly><button id="copy">Copy</button></div><p class="fine">Your browser’s address is the owner link. Keep it private; share only the invitation above. Encryption and owner keys stay in the link fragment and never reach the server.</p></div>
         <div id="messages" class="messages" aria-live="polite"></div>
         <form id="sendForm" class="composer"><textarea id="message" maxlength="8000" placeholder="Write a message…" required></textarea><button>Send</button></form>
         <p id="status" class="fine" role="status"></p>

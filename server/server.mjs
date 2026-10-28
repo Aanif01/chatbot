@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomUUID, webcrypto } from "node:crypto";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const webRoot = join(root, "web");
@@ -42,8 +42,15 @@ const server = createServer(async (req, res) => {
   const parts = url.pathname.split("/").filter(Boolean);
   try {
     if (req.method === "POST" && url.pathname === "/api/rooms") {
+      const payload = await readJson(req);
+      if (typeof payload?.ownerPublicKey !== "string" || payload.ownerPublicKey.length > 512) {
+        return json(res, 400, { error: "Invalid room owner key" });
+      }
+      try {
+        await webcrypto.subtle.importKey("spki", Buffer.from(payload.ownerPublicKey, "base64"), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+      } catch { return json(res, 400, { error: "Invalid room owner key" }); }
       const id = randomUUID();
-      const room = { expiresAt: Date.now() + roomTtlMs, messages: [] };
+      const room = { expiresAt: Date.now() + roomTtlMs, messages: [], ownerPublicKey: payload.ownerPublicKey };
       rooms.set(id, room);
       return json(res, 201, { id, expiresAt: room.expiresAt });
     }
@@ -67,6 +74,17 @@ const server = createServer(async (req, res) => {
         return json(res, 201, stored);
       }
       if (req.method === "DELETE" && parts.length === 3) {
+        let payload;
+        try { payload = await readJson(req); } catch { return json(res, 403, { error: "Owner authorization required" }); }
+        let authorized = false;
+        try {
+          const publicKey = await webcrypto.subtle.importKey("spki", Buffer.from(room.ownerPublicKey, "base64"), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+          authorized = typeof payload?.signature === "string" && await webcrypto.subtle.verify(
+            { name: "ECDSA", hash: "SHA-256" }, publicKey, Buffer.from(payload.signature, "base64"),
+            new TextEncoder().encode(`discard:${id}`),
+          );
+        } catch { /* malformed owner signature */ }
+        if (!authorized) return json(res, 403, { error: "Only the room creator can discard this room" });
         rooms.delete(id);
         return json(res, 200, { deleted: true });
       }

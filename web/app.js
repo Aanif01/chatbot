@@ -7,6 +7,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 let roomId;
 let key;
+let ownerPrivateKey;
 let senderId = sessionStorage.getItem("chat-sender") || crypto.randomUUID();
 sessionStorage.setItem("chat-sender", senderId);
 let seen = new Set();
@@ -40,9 +41,12 @@ async function decrypt(message) {
   const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(message.nonce) }, key, base64ToBytes(message.ciphertext));
   return decoder.decode(plaintext);
 }
-async function configureRoom(id, rawKey) {
+async function configureRoom(id, rawKey, rawOwnerKey) {
   roomId = id;
   key = await crypto.subtle.importKey("raw", base64ToBytes(rawKey), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  ownerPrivateKey = rawOwnerKey
+    ? await crypto.subtle.importKey("pkcs8", base64ToBytes(rawOwnerKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"])
+    : undefined;
 }
 function showMessage(message) {
   if (seen.has(message.id)) return;
@@ -107,6 +111,7 @@ function cleanRoom(message) {
   liveConnection = false;
   roomId = undefined;
   key = undefined;
+  ownerPrivateKey = undefined;
   joinedRoom = false;
   oldSocket?.close();
   history.replaceState(null, "", location.pathname);
@@ -196,6 +201,7 @@ $("identity").addEventListener("submit", (event) => {
 
 $("changeName").addEventListener("click", () => {
   $("displayName").value = displayName;
+  $("roomAction").textContent = ownerPrivateKey ? "Discard room" : "Leave room";
   $("join").textContent = "Update name";
   $("roomContent").classList.add("hidden");
   $("identity").classList.remove("hidden");
@@ -206,12 +212,19 @@ $("create").addEventListener("click", async () => {
   const button = $("create");
   button.disabled = true;
   try {
-    const room = await api("/api/rooms", { method: "POST" });
+    const ownerKeys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const ownerPublicKey = bytesToBase64(new Uint8Array(await crypto.subtle.exportKey("spki", ownerKeys.publicKey)));
+    const ownerRawKey = bytesToBase64(new Uint8Array(await crypto.subtle.exportKey("pkcs8", ownerKeys.privateKey)));
+    const room = await api("/api/rooms", { method: "POST", body: JSON.stringify({ ownerPublicKey }) });
     const rawKey = crypto.getRandomValues(new Uint8Array(32));
-    await configureRoom(room.id, bytesToBase64(rawKey));
-    const link = new URL(location.href);
-    link.hash = `${room.id}.${bytesToBase64(rawKey)}`;
-    $("shareLink").value = link.href;
+    const encodedKey = bytesToBase64(rawKey);
+    await configureRoom(room.id, encodedKey, ownerRawKey);
+    const inviteLink = new URL(location.href);
+    inviteLink.hash = `${room.id}.${encodedKey}`;
+    const ownerLink = new URL(inviteLink.href);
+    ownerLink.hash = `${room.id}.${encodedKey}.${ownerRawKey}`;
+    history.replaceState(null, "", ownerLink.href);
+    $("shareLink").value = inviteLink.href;
     showRoom({ share: true });
   } catch (error) {
     statusNode.textContent = error.message;
@@ -242,19 +255,29 @@ $("sendForm").addEventListener("submit", async (event) => {
   } catch (error) { statusNode.textContent = error.message; }
 });
 
-$("discard").addEventListener("click", async () => {
-  if (!confirm("Discard this room and delete its messages from server memory?")) return;
-  try { await api(`/api/rooms/${roomId}`, { method: "DELETE" }); }
-  finally { cleanRoom("This conversation was discarded. Its link and messages have been cleared from this page."); }
+$("roomAction").addEventListener("click", async () => {
+  if (!ownerPrivateKey) {
+    if (confirm("Leave this conversation on this device? The room will stay open for everyone else.")) {
+      cleanRoom("You left the conversation on this device. The room is still open for others.");
+    }
+    return;
+  }
+  if (!confirm("Discard this room for everyone and delete its messages?")) return;
+  try {
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" }, ownerPrivateKey, encoder.encode(`discard:${roomId}`),
+    );
+    await api(`/api/rooms/${roomId}`, { method: "DELETE", body: JSON.stringify({ signature: bytesToBase64(new Uint8Array(signature)) }) });
+    cleanRoom("This conversation was discarded. Its link and messages have been cleared from this page.");
+  } catch (error) { statusNode.textContent = error.message; }
 });
 
 const fragment = location.hash.slice(1);
 if (fragment) {
+  const [id, rawKey, rawOwnerKey] = fragment.split(".");
   const separator = fragment.indexOf(".");
-  const id = fragment.slice(0, separator);
-  const rawKey = fragment.slice(separator + 1);
   if (separator > 0 && rawKey) {
-    configureRoom(id, rawKey).then(() => showRoom()).catch(() => { statusNode.textContent = "This link is invalid."; chat.classList.remove("hidden"); });
+    configureRoom(id, rawKey, rawOwnerKey).then(() => showRoom()).catch(() => { statusNode.textContent = "This link is invalid."; chat.classList.remove("hidden"); });
   } else {
     statusNode.textContent = "This link is invalid.";
     chat.classList.remove("hidden");

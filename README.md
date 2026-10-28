@@ -6,7 +6,7 @@ This repository is a modular starting point for a two-person chat opened through
 
 The intended design is end-to-end encrypted: the browser creates and holds the conversation key, encrypts messages before sending them, and puts the key in the URL fragment (`#...`). URL fragments are not sent in HTTP requests. The service should receive only an opaque conversation identifier and ciphertext. Never put the key in a URL path/query, API request, server log, analytics event, or database.
 
-The prototype implements browser-side AES-GCM encryption, a local HTTP relay, and a Cloudflare Worker/Durable Object relay for hosted use. Hosted rooms have a one-hour expiry, SQLite-backed ciphertext history, and WebSocket delivery. It is not production-secure: random room IDs act as bearer capabilities, there is no identity verification or anti-abuse system, and clients sharing a link can impersonate a sender label. Review the threat model and cryptographic protocol before using it for sensitive conversations. “Discard room” deletes server-side room storage; it cannot erase copies, screenshots, browser history, or data already received by a participant.
+The prototype implements browser-side AES-GCM encryption, a local HTTP relay, and a Cloudflare Worker/Durable Object relay for hosted use. Hosted rooms have a one-hour expiry, SQLite-backed ciphertext history, and WebSocket delivery. The creator has a separate signing key in their browser link; the copied invitation link does not include it. Only the creator can discard the room, while guests can leave on their device. Display names are visible to the chat service while connected and are not verified identities. It is not production-secure: anyone with an invitation link can read and send messages, there is no anti-abuse system, and participants can choose misleading names. Review the threat model and cryptographic protocol before using it for sensitive conversations. Discarding deletes server-side room storage; it cannot erase copies, screenshots, browser history, or data already received by a participant.
 
 ## Modules
 
@@ -46,7 +46,7 @@ npx wrangler login
 npm run cf:deploy
 ```
 
-Wrangler prints the public HTTPS URL. Share a generated conversation link from that URL. The Durable Object's alarm expires and deletes the room after one hour; **Discard room** deletes it immediately. The Worker configuration and SQLite migration live in `wrangler.jsonc`.
+Wrangler prints the public HTTPS URL. Share only the invitation link shown in the room; keep the creator's browser address private because it contains the creator-only discard key. The Durable Object's alarm expires and deletes the room after one hour; **Discard room** deletes it immediately for everyone, while **Leave room** clears only a guest's local view. The Worker configuration and SQLite migration live in `wrangler.jsonc`.
 
 Free-plan quotas apply. If a quota is exhausted, requests may fail until it resets; free hosting is not an uptime or capacity guarantee. Keep an eye on the Cloudflare dashboard for usage. See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
 

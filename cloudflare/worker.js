@@ -19,6 +19,10 @@ function validMessage(value) {
     value.sender.length > 0 && value.sender.length <= 64;
 }
 
+function base64ToBytes(value) {
+  return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -27,7 +31,12 @@ export default {
     if (url.pathname === "/api/rooms" && request.method === "POST") {
       const roomId = crypto.randomUUID();
       const room = env.ROOMS.getByName(roomId);
-      const createResponse = await room.fetch("https://room.internal/create", { method: "POST" });
+      const body = await request.text();
+      if (new TextEncoder().encode(body).byteLength > 2048) return json({ error: "Invalid room owner key" }, 400);
+      const createResponse = await room.fetch("https://room.internal/create", {
+        method: "POST", headers: { "content-type": "application/json" }, body,
+      });
+      if (createResponse.status === 400) return createResponse;
       if (!createResponse.ok) return json({ error: "Could not create room" }, 500);
       return json({ id: roomId, ...(await createResponse.json()) }, 201);
     }
@@ -62,11 +71,17 @@ export class ChatRoom extends DurableObject {
         sent_at INTEGER NOT NULL
       )
     `);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS room_owner (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        public_key TEXT NOT NULL
+      )
+    `);
   }
 
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === "/create" && request.method === "POST") return this.createRoom();
+    if (url.pathname === "/create" && request.method === "POST") return this.createRoom(request);
 
     const room = await this.getActiveRoom();
     if (!room) return json({ error: "Room not found or expired" }, 404);
@@ -88,6 +103,21 @@ export class ChatRoom extends DurableObject {
       return json(await this.storeAndBroadcast(payload), 201);
     }
     if (request.method === "DELETE" && /^\/api\/rooms\/[^/]+$/.test(url.pathname)) {
+      let payload;
+      try { payload = await request.json(); } catch { return json({ error: "Owner authorization required" }, 403); }
+      const owner = this.ctx.storage.sql.exec("SELECT public_key FROM room_owner WHERE id = 1").toArray()[0];
+      if (!owner || typeof payload?.signature !== "string" || payload.signature.length > 256) {
+        return json({ error: "Only the room creator can discard this room" }, 403);
+      }
+      let authorized = false;
+      try {
+        const publicKey = await crypto.subtle.importKey("spki", base64ToBytes(owner.public_key), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+        authorized = await crypto.subtle.verify(
+          { name: "ECDSA", hash: "SHA-256" }, publicKey, base64ToBytes(payload.signature),
+          new TextEncoder().encode(`discard:${url.pathname.split("/")[3]}`),
+        );
+      } catch { /* malformed owner signature */ }
+      if (!authorized) return json({ error: "Only the room creator can discard this room" }, 403);
       this.endRoom("discarded");
       await this.ctx.storage.deleteAll();
       return json({ deleted: true });
@@ -95,7 +125,16 @@ export class ChatRoom extends DurableObject {
     return json({ error: "Not found" }, 404);
   }
 
-  async createRoom() {
+  async createRoom(request) {
+    let payload;
+    try { payload = await request.json(); } catch { return json({ error: "Invalid room owner key" }, 400); }
+    if (typeof payload?.ownerPublicKey !== "string" || payload.ownerPublicKey.length > 512) {
+      return json({ error: "Invalid room owner key" }, 400);
+    }
+    try {
+      await crypto.subtle.importKey("spki", base64ToBytes(payload.ownerPublicKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    } catch { return json({ error: "Invalid room owner key" }, 400); }
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO room_owner (id, public_key) VALUES (1, ?)", payload.ownerPublicKey);
     const expiresAt = Date.now() + ROOM_TTL_MS;
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO room_meta (id, expires_at) VALUES (1, ?)", expiresAt);
     await this.ctx.storage.setAlarm(expiresAt);
