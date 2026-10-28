@@ -91,6 +91,7 @@ export class ChatRoom extends DurableObject {
       )
     `);
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS media_once (id TEXT PRIMARY KEY)`);
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS media_once_views (media_id TEXT NOT NULL, viewer_id TEXT NOT NULL, viewed_at INTEGER NOT NULL, PRIMARY KEY (media_id, viewer_id))`);
   }
 
   async fetch(request) {
@@ -133,15 +134,15 @@ export class ChatRoom extends DurableObject {
     const consumeMatch = url.pathname.match(/^\/api\/rooms\/[^/]+\/media\/([0-9a-f-]{36})\/consume$/i);
     if (consumeMatch && request.method === "POST") {
       const [, mediaId] = consumeMatch;
+      const viewerId = request.headers.get("x-viewer-id") || "";
+      if (!/^[0-9a-f-]{36}$/i.test(viewerId)) return json({ error: "Could not identify this chat participant" }, 400);
       const once = this.ctx.storage.sql.exec("SELECT id FROM media_once WHERE id = ?", mediaId).toArray()[0];
       if (!once) return json({ error: "This image is not available for view-once access" }, 404);
-      const row = this.ctx.storage.sql.exec("DELETE FROM media_files WHERE id = ? RETURNING data", mediaId).toArray()[0];
-      this.ctx.storage.sql.exec("DELETE FROM media_once WHERE id = ?", mediaId);
-      if (!row) return json({ error: "This image was already viewed" }, 410);
-      const frame = JSON.stringify({ type: "media-viewed", mediaId, viewerId: request.headers.get("x-viewer-id") || "" });
-      for (const socket of this.ctx.getWebSockets()) {
-        try { socket.send(frame); } catch { socket.close(1011, "Delivery failed"); }
-      }
+      const previousView = this.ctx.storage.sql.exec("SELECT 1 FROM media_once_views WHERE media_id = ? AND viewer_id = ?", mediaId, viewerId).toArray()[0];
+      if (previousView) return json({ error: "You have already viewed this image" }, 410);
+      const row = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ?", mediaId).toArray()[0];
+      if (!row) return json({ error: "This image is no longer available" }, 404);
+      this.ctx.storage.sql.exec("INSERT INTO media_once_views (media_id, viewer_id, viewed_at) VALUES (?, ?, ?)", mediaId, viewerId, Date.now());
       return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
     }
     if (request.method === "POST" && url.pathname.endsWith("/messages")) {

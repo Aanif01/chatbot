@@ -133,7 +133,7 @@ async function renderMedia(bubble, media) {
     bubble.insertBefore(viewButton, bubble.querySelector(".reply-message"));
     const hint = document.createElement("div");
     hint.className = "media-caption";
-    hint.textContent = "Opens once · removed from the room after opening";
+    hint.textContent = "One view per participant · cleared when the room ends";
     bubble.insertBefore(hint, bubble.querySelector(".reply-message"));
     return;
   }
@@ -203,7 +203,7 @@ function showImageViewer(objectUrl, viewOnce) {
   clearTimeout(viewerTimer);
   $("viewerImage").src = objectUrl;
   $("viewerLabel").textContent = viewOnce ? "View once · 10 seconds" : "Image preview";
-  $("viewerNotice").textContent = viewOnce ? "The room copy has been removed. Screenshots and external cameras can’t be blocked." : "";
+  $("viewerNotice").textContent = viewOnce ? "Your view is one-time. The encrypted room copy remains for other participants until the room ends." : "";
   if (!viewer.open) viewer.showModal();
   if (viewOnce) viewerTimer = setTimeout(closeImageViewer, 10_000);
 }
@@ -217,16 +217,6 @@ function closeImageViewer() {
     if (onceViewerUrl.startsWith("blob:")) URL.revokeObjectURL(onceViewerUrl);
     mediaUrls.delete(onceViewerUrl);
     onceViewerUrl = undefined;
-  }
-}
-function markOnceImageViewed(mediaId) {
-  const bubble = [...messagesNode.querySelectorAll(".bubble")].find((node) => node.dataset.mediaId === mediaId);
-  if (!bubble) return;
-  const button = bubble.querySelector(".view-once-button");
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Already viewed";
-    button.classList.add("view-once-ended");
   }
 }
 function formatBytes(bytes) { return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
@@ -346,7 +336,6 @@ function startUpdates() {
     let frame;
     try { frame = JSON.parse(event.data); } catch { return; }
     if (frame.type === "message") showMessage(frame.message);
-    if (frame.type === "media-viewed" && frame.viewerId !== senderId) markOnceImageViewed(frame.mediaId);
     if (frame.type === "presence") {
       participantNames = new Map(frame.participants.map((person) => [person.sender, person.name]));
       $("participantCount").textContent = `${frame.participants.length} here`;

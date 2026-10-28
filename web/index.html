@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Private link chat</title>
-  <link rel="stylesheet" href="./style.css?v=20261029-12">
-  <script type="module" src="./app.js?v=20261029-12"></script>
+  <link rel="stylesheet" href="./style.css?v=20261029-13">
+  <script type="module" src="./app.js?v=20261029-13"></script>
 </head>
 <body>
   <main class="shell">
@@ -33,7 +33,7 @@
         <div id="messages" class="messages" aria-live="polite"></div>
         <div id="replyingTo" class="replying-to hidden" role="status"><div><strong id="replyingName"></strong><span id="replyingText"></span></div><button id="cancelReply" type="button" class="quiet">Cancel</button></div>
         <form id="sendForm" class="composer"><label class="attach-button" for="mediaInput" aria-label="Attach image, audio, or video">＋<input id="mediaInput" type="file" accept="image/*,audio/*,video/*" hidden></label><textarea id="message" maxlength="8000" placeholder="Write a message…"></textarea><button id="sendButton">Send</button></form>
-        <label id="viewOnceOption" class="view-once-option hidden"><input id="viewOnce" type="checkbox" checked> View once <span>image disappears after one opening</span></label>
+        <label id="viewOnceOption" class="view-once-option hidden"><input id="viewOnce" type="checkbox" checked> View once <span>one opening per participant</span></label>
         <p id="mediaHint" class="fine media-hint">Attach an image, audio, or video · up to 1.5 MB · encrypted before upload</p>
         <p id="status" class="fine" role="status"></p>
       </div>
