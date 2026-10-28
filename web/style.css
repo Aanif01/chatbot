@@ -1,0 +1,77 @@
+:root {
+  color: #17352c;
+  background: #f4f7f3;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+  --green: #176447;
+  --ink: #17352c;
+  --muted: #708079;
+  --line: #e1eae3;
+}
+
+* { box-sizing: border-box; }
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 9% 2%, #e2eee3 0, transparent 31rem),
+    radial-gradient(ellipse at 100% 40%, #edf3eb 0, transparent 28rem),
+    #f6f8f5;
+}
+.shell { width: min(690px, calc(100% - 36px)); margin: 0 auto; padding: 66px 0 40px; }
+header { display: flex; align-items: center; gap: 15px; }
+.mark {
+  display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 46px;
+  border-radius: 15px; background: linear-gradient(145deg, #267a58, #155139);
+  color: white; font-size: 21px; font-weight: 750; letter-spacing: -.8px;
+  box-shadow: 0 6px 14px #1b64441f;
+}
+h1, h2, p { margin-top: 0; }
+.eyebrow { margin: 0 0 4px; color: #668676; font-size: 10px; font-weight: 750; letter-spacing: 1.6px; }
+h1 { margin: 0; color: var(--ink); font-size: clamp(27px, 5vw, 37px); font-weight: 750; letter-spacing: -1.6px; line-height: 1.14; }
+.intro { max-width: 575px; margin: 23px 0 25px; color: #68786f; font-size: 15px; line-height: 1.75; }
+.card {
+  overflow: hidden; padding: 29px; border: 1px solid #e6ece6; border-radius: 19px;
+  background: #fff; box-shadow: 0 16px 45px #183b2910, 0 2px 7px #183b2907;
+}
+.card h2 { margin: 0 0 8px; color: var(--ink); font-size: 19px; font-weight: 700; letter-spacing: -.45px; }
+.card > p { color: var(--muted); font-size: 14px; line-height: 1.65; }
+button { border: 0; border-radius: 10px; background: var(--green); color: white; font: inherit; font-size: 13px; font-weight: 650; padding: 11px 15px; cursor: pointer; transition: background .15s, transform .15s; }
+button:hover { background: #12543c; transform: translateY(-1px); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #9ac9ad; outline-offset: 2px; }
+button:disabled { opacity: .65; cursor: wait; }
+.card > button { margin: 9px 0 11px; }
+.fine { color: #89978f !important; font-size: 11px !important; line-height: 1.55 !important; }
+.hidden { display: none !important; }
+.room-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: -29px -29px 0; padding: 23px 28px 19px; border-bottom: 1px solid #edf1ed; background: linear-gradient(110deg, #fbfdfb, #f6faf6); }
+.room-head > div { min-width: 0; }
+.room-head h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 5px; font-size: 17px; }
+.room-head h2::before { width: 8px; height: 8px; border-radius: 50%; background: #51a875; box-shadow: 0 0 0 4px #e7f4eb; content: ""; }
+.room-head .fine { margin: 0; }
+.quiet { flex: 0 0 auto; border: 1px solid #e5ebe6; background: #fff; color: #66766d; padding: 9px 12px; font-size: 12px; }
+.quiet:hover { border-color: #f0d4d1; background: #fff8f7; color: #a3433d; }
+.share { margin: 18px 0; padding: 15px; border: 1px solid #dfe9e1; border-radius: 12px; background: #f8fbf8; }
+.share label { display: block; margin-bottom: 8px; color: #334d40; font-size: 12px; font-weight: 700; }
+.share-row { display: flex; gap: 8px; }
+.share input { width: 100%; min-width: 0; padding: 10px; border: 1px solid #dce5de; border-radius: 8px; background: white; color: #54675c; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.share button { flex: 0 0 auto; padding: 9px 13px; }
+.share .fine { margin: 8px 0 0; }
+.messages { display: flex; min-height: 190px; max-height: 380px; flex-direction: column; gap: 10px; overflow: auto; padding: 17px 2px; border-top: 1px solid #edf1ed; border-bottom: 1px solid #edf1ed; }
+.bubble { max-width: 82%; padding: 10px 13px; border-radius: 14px 14px 14px 4px; background: #f1f5f1; color: #263e33; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: #e6f3e9; }
+.bubble .who { margin-bottom: 3px; color: #819087; font-size: 10px; font-weight: 650; }
+.composer { display: flex; align-items: end; gap: 9px; margin-top: 14px; }
+.composer textarea { flex: 1; min-height: 45px; max-height: 140px; resize: vertical; padding: 12px; border: 1px solid #dce5de; border-radius: 10px; color: var(--ink); font: inherit; font-size: 13px; }
+.composer textarea::placeholder { color: #9aa69f; }
+.foot { margin: 21px 0 0; color: #98a49c; font-size: 11px; text-align: center; }
+@media (max-width: 500px) {
+  .shell { padding-top: 40px; }
+  .card { padding: 21px; }
+  .room-head { margin: -21px -21px 0; padding: 19px 20px 16px; }
+  .room-head h2 { font-size: 16px; }
+  .quiet { padding: 8px 10px; font-size: 11px; }
+  .composer { align-items: stretch; }
+  .share-row input { font-size: 9px; }
+}

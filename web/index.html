@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Private link chat</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header><div class="mark">P</div><div><p class="eyebrow">PRIVATE LINK CHAT</p><h1>A quiet place to talk.</h1></div></header>
+    <p class="intro">Create a temporary room and share its link with one person. Messages are encrypted in your browser before they leave this device.</p>
+    <section id="welcome" class="card">
+      <h2>Start a private conversation</h2>
+      <p>Anyone with the full link can join. Keep it between you and the person you invite.</p>
+      <button id="create">Create a conversation link</button>
+      <p class="fine">Rooms expire after 1 hour. The relay stores encrypted messages until expiry or you discard the room.</p>
+    </section>
+    <section id="chat" class="card hidden">
+      <div class="room-head"><div><h2>Conversation</h2><p id="expiry" class="fine"></p></div><button id="discard" class="quiet danger">Discard room</button></div>
+      <div id="shareBox" class="share hidden"><label for="shareLink">Share this link privately</label><div class="share-row"><input id="shareLink" readonly><button id="copy">Copy</button></div><p class="fine">The key is in the link fragment. The server never receives it.</p></div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <form id="sendForm" class="composer"><textarea id="message" maxlength="8000" placeholder="Write a message…" required></textarea><button>Send</button></form>
+      <p id="status" class="fine" role="status"></p>
+    </section>
+    <p class="foot">Prototype only · Don’t use for sensitive conversations yet</p>
+  </main>
+</body>
+</html>
