@@ -21,6 +21,8 @@ let displayName = sessionStorage.getItem("chat-name") || "";
 let participantNames = new Map();
 let joinedRoom = false;
 let replyTarget;
+let mediaUrls = new Set();
+const MAX_MEDIA_BYTES = 1_500_000;
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -63,11 +65,13 @@ function showMessage(message) {
     let text = plaintext;
     let name = participantNames.get(message.sender) || "Guest";
     let reply;
+    let media;
     try {
       const content = JSON.parse(plaintext);
       if (typeof content.text === "string" && typeof content.name === "string") {
         text = content.text;
         name = content.name;
+        if (content.media && typeof content.media.id === "string" && typeof content.media.nonce === "string") media = content.media;
         if (content.reply && typeof content.reply.id === "string" && typeof content.reply.text === "string") {
           reply = {
             id: content.reply.id,
@@ -77,12 +81,12 @@ function showMessage(message) {
         }
       }
     } catch { /* older messages contained plain text */ }
-    makeBubble(text, message.sender === senderId, name, message.id, reply);
+    makeBubble(text, message.sender === senderId, name, message.id, reply, media);
   }).catch(() => {
     statusNode.textContent = "A message could not be decrypted with this link.";
   });
 }
-function makeBubble(text, mine, name, messageId, reply) {
+function makeBubble(text, mine, name, messageId, reply, media) {
   const bubble = document.createElement("div");
   bubble.className = `bubble${mine ? " mine" : ""}`;
   const who = document.createElement("div");
@@ -99,18 +103,55 @@ function makeBubble(text, mine, name, messageId, reply) {
     quote.append(quotedName, quotedText);
     bubble.append(quote);
   }
-  const body = document.createElement("div");
-  body.textContent = text;
-  bubble.append(body);
+  if (text) {
+    const body = document.createElement("div");
+    body.textContent = text;
+    bubble.append(body);
+  }
+  if (media) renderMedia(bubble, media);
   const replyButton = document.createElement("button");
   replyButton.type = "button";
   replyButton.className = "reply-message";
   replyButton.textContent = "Reply";
-  replyButton.addEventListener("click", () => setReplyTarget({ id: messageId, name, text }));
+  replyButton.addEventListener("click", () => setReplyTarget({ id: messageId, name, text: text || "Media" }));
   bubble.append(replyButton);
   messagesNode.append(bubble);
   messagesNode.scrollTop = messagesNode.scrollHeight;
 }
+async function renderMedia(bubble, media) {
+  const placeholder = document.createElement("div");
+  placeholder.className = "media-loading";
+  placeholder.textContent = "Decrypting media…";
+  bubble.insertBefore(placeholder, bubble.querySelector(".reply-message"));
+  try {
+    const response = await fetch(`/api/rooms/${roomId}/media/${media.id}`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Media is unavailable");
+    const encrypted = await response.arrayBuffer();
+    const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(media.nonce) }, key, encrypted);
+    const blob = new Blob([clear], { type: media.type });
+    const objectUrl = URL.createObjectURL(blob);
+    mediaUrls.add(objectUrl);
+    const preview = media.type.startsWith("image/") ? document.createElement("img")
+      : media.type.startsWith("video/") ? document.createElement("video") : document.createElement("audio");
+    preview.className = "media-preview";
+    preview.src = objectUrl;
+    preview.alt = media.type.startsWith("image/") ? (media.name || "Shared image") : "";
+    if (preview instanceof HTMLMediaElement) {
+      preview.controls = true;
+      preview.playsInline = true;
+      preview.controlsList = "nodownload noremoteplayback";
+      if (preview instanceof HTMLVideoElement) preview.disablePictureInPicture = true;
+    }
+    placeholder.replaceWith(preview);
+    const caption = document.createElement("div");
+    caption.className = "media-caption";
+    caption.textContent = `${media.name || "Shared media"} · ${formatBytes(media.size)}`;
+    preview.after(caption);
+  } catch {
+    placeholder.textContent = "This media is unavailable.";
+  }
+}
+function formatBytes(bytes) { return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
 function setReplyTarget(target) {
   replyTarget = target;
   $("replyingName").textContent = `Replying to ${target.name}`;
@@ -166,6 +207,8 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   ownerPrivateKey = undefined;
   joinedRoom = false;
   oldSocket?.close();
+  for (const url of mediaUrls) URL.revokeObjectURL(url);
+  mediaUrls.clear();
   if (!keepFragment) history.replaceState(null, "", location.pathname);
   messagesNode.replaceChildren();
   seen.clear();
@@ -179,6 +222,8 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   $("roomContent").classList.add("hidden");
   $("shareLink").value = "";
   $("message").value = "";
+  $("mediaInput").value = "";
+  $("mediaHint").textContent = "Attach an image, audio, or video · up to 1.5 MB · encrypted before upload";
   $("expiry").textContent = "";
   $("shareBox").classList.add("hidden");
   statusNode.textContent = "";
@@ -323,9 +368,23 @@ $("sendForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = $("message");
   const text = input.value.trim();
-  if (!text) return;
+  const file = $("mediaInput").files[0];
+  if (!text && !file) return;
   try {
     const content = { text, name: displayName };
+    if (file) {
+      if (!/^(image|audio|video)\//.test(file.type)) throw new Error("Choose an image, audio, or video file.");
+      if (file.size > MAX_MEDIA_BYTES) throw new Error("Media must be 1.5 MB or smaller.");
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const encryptedBytes = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, await file.arrayBuffer());
+      const mediaId = crypto.randomUUID();
+      const upload = await fetch(`/api/rooms/${roomId}/media/${mediaId}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: encryptedBytes, cache: "no-store" });
+      if (!upload.ok) {
+        const result = await upload.json().catch(() => ({}));
+        throw new Error(result.error || "Could not upload media.");
+      }
+      content.media = { id: mediaId, nonce: bytesToBase64(nonce), name: file.name.slice(0, 180), type: file.type, size: file.size };
+    }
     if (replyTarget) {
       content.reply = {
         id: replyTarget.id,
@@ -341,9 +400,25 @@ $("sendForm").addEventListener("submit", async (event) => {
       await api(`/api/rooms/${roomId}/messages`, { method: "POST", body: JSON.stringify(message) });
     }
     input.value = "";
+    $("mediaInput").value = "";
+    $("mediaHint").textContent = "Attach an image, audio, or video · up to 1.5 MB · encrypted before upload";
     clearReply();
     if (!liveConnection) await refresh();
   } catch (error) { statusNode.textContent = error.message; }
+});
+
+$("mediaInput").addEventListener("change", () => {
+  const file = $("mediaInput").files[0];
+  if (!file) return;
+  if (!/^(image|audio|video)\//.test(file.type)) {
+    $("mediaInput").value = "";
+    $("mediaHint").textContent = "Choose an image, audio, or video file.";
+  } else if (file.size > MAX_MEDIA_BYTES) {
+    $("mediaInput").value = "";
+    $("mediaHint").textContent = "Media must be 1.5 MB or smaller.";
+  } else {
+    $("mediaHint").textContent = `${file.name} · ${formatBytes(file.size)} ready to send`;
+  }
 });
 
 $("cancelReply").addEventListener("click", clearReply);

@@ -4,6 +4,8 @@ const ROOM_TTL_MS = 60 * 60 * 1000;
 const PRESENCE_TTL_MS = 45 * 1000;
 const MAX_MESSAGES = 500;
 const MAX_CIPHERTEXT_LENGTH = 12_000;
+const MAX_MEDIA_BYTES = 1_500_000;
+const MAX_MEDIA_FILES = 30;
 const ROOM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function json(value, status = 200) {
@@ -27,7 +29,7 @@ function base64ToBytes(value) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const match = url.pathname.match(/^\/api\/rooms\/([^/]+)(\/messages|\/ws)?$/);
+    const match = url.pathname.match(/^\/api\/rooms\/([^/]+)(\/messages|\/ws|\/media\/[^/]+)?$/);
 
     if (url.pathname === "/api/rooms" && request.method === "POST") {
       const roomId = crypto.randomUUID();
@@ -81,6 +83,13 @@ export class ChatRoom extends DurableObject {
         public_key TEXT NOT NULL
       )
     `);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS media_files (
+        id TEXT PRIMARY KEY,
+        data BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
   }
 
   async fetch(request) {
@@ -92,6 +101,31 @@ export class ChatRoom extends DurableObject {
 
     if (url.pathname.endsWith("/ws") && request.method === "GET") return this.connectWebSocket(request);
     if (request.method === "GET" && /^\/api\/rooms\/[^/]+$/.test(url.pathname)) return this.getMessages(room);
+    const mediaMatch = url.pathname.match(/^\/api\/rooms\/[^/]+\/media\/([0-9a-f-]{36})$/i);
+    if (mediaMatch) {
+      const [, mediaId] = mediaMatch;
+      if (request.method === "PUT") {
+        const length = Number(request.headers.get("content-length") ?? 0);
+        if (length > MAX_MEDIA_BYTES) return json({ error: "Media must be 1.5 MB or smaller" }, 413);
+        const data = new Uint8Array(await request.arrayBuffer());
+        if (!data.byteLength || data.byteLength > MAX_MEDIA_BYTES) return json({ error: "Media must be 1.5 MB or smaller" }, 413);
+        const total = this.ctx.storage.sql.exec("SELECT COUNT(*) AS total FROM media_files").toArray()[0].total;
+        if (total >= MAX_MEDIA_FILES) return json({ error: "This room has reached its media limit" }, 429);
+        try {
+          this.ctx.storage.sql.exec("INSERT INTO media_files (id, data, created_at) VALUES (?, ?, ?)", mediaId, data, Date.now());
+        } catch { return json({ error: "Could not store this media" }, 409); }
+        return json({ stored: true }, 201);
+      }
+      if (request.method === "GET") {
+        const row = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ?", mediaId).toArray()[0];
+        if (!row) return json({ error: "Media not found or room ended" }, 404);
+        return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+      }
+      if (request.method === "DELETE") {
+        this.ctx.storage.sql.exec("DELETE FROM media_files WHERE id = ?", mediaId);
+        return json({ deleted: true });
+      }
+    }
     if (request.method === "POST" && url.pathname.endsWith("/messages")) {
       let payload;
       const announcedLength = Number(request.headers.get("content-length") ?? 0);

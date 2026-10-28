@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Private link chat</title>
-  <link rel="stylesheet" href="./style.css?v=20261029-9">
-  <script type="module" src="./app.js?v=20261029-9"></script>
+  <link rel="stylesheet" href="./style.css?v=20261029-10">
+  <script type="module" src="./app.js?v=20261029-10"></script>
 </head>
 <body>
   <main class="shell">
@@ -17,7 +17,7 @@
       <h2>Start a private conversation</h2>
       <p>Anyone with the full link can join. Keep it between you and the person you invite.</p>
       <button id="create">Create a conversation link</button>
-      <p class="fine">Rooms expire after 1 hour. The relay stores encrypted messages until expiry or you discard the room.</p>
+      <p class="fine">Rooms expire after 1 hour. Encrypted messages and media are erased when the room expires or is discarded.</p>
     </section>
     <section id="chat" class="card hidden">
       <form id="identity" class="identity">
@@ -26,13 +26,14 @@
         <p class="fine">Everyone in the room and the chat service can see this name while you’re connected. You appear in the online count after joining. Names are not verified identities.</p>
         <div class="identity-actions"><button id="ownerDiscard" type="button" class="quiet danger hidden">Discard room</button></div>
       </form>
-      <div id="discardConfirm" class="discard-confirm hidden" role="group" aria-label="Confirm room discard"><p>Discard this conversation for everyone? Messages stored by the room will be deleted.</p><div><button id="cancelDiscard" type="button" class="quiet">Keep chatting</button><button id="confirmDiscard" type="button" class="danger-action">Discard for everyone</button></div></div>
+      <div id="discardConfirm" class="discard-confirm hidden" role="group" aria-label="Confirm room discard"><p>Discard this conversation for everyone? Stored messages and media will be erased.</p><div><button id="cancelDiscard" type="button" class="quiet">Keep chatting</button><button id="confirmDiscard" type="button" class="danger-action">Discard for everyone</button></div></div>
       <div id="roomContent" class="hidden">
         <div class="room-head"><div><h2>Conversation <span id="participantCount" class="participant-count">0 here</span></h2><p id="participants" class="fine">Live participants appear here</p><p id="expiry" class="fine"></p></div><div class="room-actions"><button id="changeName" class="quiet">Your name</button><button id="roomAction" class="quiet danger">Leave room</button></div></div>
         <div id="shareBox" class="share hidden"><label for="shareLink">Share this invitation link privately</label><div class="share-row"><input id="shareLink" readonly><button id="copy">Copy</button></div><p class="fine">Your browser’s address is the owner link. Keep it private; share only the invitation above. Encryption and owner keys stay in the link fragment and never reach the server.</p></div>
         <div id="messages" class="messages" aria-live="polite"></div>
         <div id="replyingTo" class="replying-to hidden" role="status"><div><strong id="replyingName"></strong><span id="replyingText"></span></div><button id="cancelReply" type="button" class="quiet">Cancel</button></div>
-        <form id="sendForm" class="composer"><textarea id="message" maxlength="8000" placeholder="Write a message…" required></textarea><button>Send</button></form>
+        <form id="sendForm" class="composer"><label class="attach-button" for="mediaInput" aria-label="Attach image, audio, or video">＋<input id="mediaInput" type="file" accept="image/*,audio/*,video/*" hidden></label><textarea id="message" maxlength="8000" placeholder="Write a message…"></textarea><button id="sendButton">Send</button></form>
+        <p id="mediaHint" class="fine media-hint">Attach an image, audio, or video · up to 1.5 MB · encrypted before upload</p>
         <p id="status" class="fine" role="status"></p>
       </div>
     </section>

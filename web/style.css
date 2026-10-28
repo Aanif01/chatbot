@@ -183,8 +183,16 @@ button:disabled { opacity: .62; cursor: wait; }
 .replying-to span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .replying-to button { padding: 6px 9px; }
 .composer { display: flex; align-items: end; gap: 9px; margin-top: 14px; }
+.attach-button { display: grid; width: 43px; height: 43px; flex: 0 0 43px; place-items: center; border: 1px solid #51483d; border-radius: 11px; background: linear-gradient(145deg, #211d18, #151413); color: #d2b77d; font-size: 23px; line-height: 1; cursor: pointer; box-shadow: inset 0 1px #d4bb8220, 0 3px 10px #0007; transition: border-color .18s ease, transform .18s ease; }
+.attach-button:hover { transform: translateY(-1px); border-color: #a38756; }
 .composer textarea { flex: 1; min-height: 47px; max-height: 140px; resize: vertical; padding: 12px 13px; border: 1px solid #51483d; border-radius: 11px; background: #11100f; color: var(--ink); font: inherit; font-size: 13px; box-shadow: inset 0 1px 3px #0009; }
 .composer textarea::placeholder { color: #928a7d; }
+.media-hint { margin: 6px 0 0; }
+.media-loading { padding: 12px; color: #b8aa8e; font-size: 11px; }
+.media-preview { display: block; max-width: min(100%, 360px); max-height: 300px; margin-top: 6px; border: 1px solid #544732; border-radius: 10px; background: #0d0c0b; object-fit: contain; }
+video.media-preview { width: min(100%, 360px); }
+audio.media-preview { width: min(100%, 320px); }
+.media-caption { margin-top: 5px; color: #aa9d87; font-size: 10px; }
 .foot { margin: 19px 0 0; color: #9d9589; font-size: 11px; text-align: center; }
 @keyframes card-in { from { opacity: 0; transform: translateY(7px) scale(.995); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes bubble-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -197,7 +205,7 @@ button:disabled { opacity: .62; cursor: wait; }
   .quiet { padding: 8px 9px; font-size: 11px; }
   .messages { min-height: 180px; max-height: 48vh; padding: 12px 7px; }
   .bubble { max-width: 90%; }
-  .composer { align-items: stretch; }
+  .composer { align-items: end; gap: 6px; }
   .composer textarea { min-width: 0; }
   .share-row { align-items: stretch; }
   .share-row input { font-size: 9px; }
