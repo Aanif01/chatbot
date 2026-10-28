@@ -13,6 +13,9 @@ sessionStorage.setItem("chat-sender", senderId);
 let seen = new Set();
 let pollTimer;
 let socket;
+let heartbeatTimer;
+let reconnectTimer;
+let reconnectAttempt = 0;
 let liveConnection = false;
 let displayName = sessionStorage.getItem("chat-name") || "";
 let participantNames = new Map();
@@ -110,7 +113,11 @@ function showRoom({ share = false } = {}) {
 }
 function cleanRoom(message, { keepFragment = false } = {}) {
   clearInterval(pollTimer);
+  clearInterval(heartbeatTimer);
+  clearTimeout(reconnectTimer);
   pollTimer = undefined;
+  heartbeatTimer = undefined;
+  reconnectTimer = undefined;
   const oldSocket = socket;
   socket = undefined;
   liveConnection = false;
@@ -139,16 +146,35 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   $("notice").classList.remove("hidden");
 }
 function startUpdates() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!liveConnection) refresh(); }, 2000);
+  if (location.protocol !== "https:") {
+    $("participantCount").textContent = "Count unavailable";
+    $("participants").textContent = "Live count is available on the hosted chat";
+    statusNode.textContent = "Using periodic refresh";
+    return;
+  }
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  socket = new WebSocket(`${scheme}//${location.host}/api/rooms/${roomId}/ws`);
-  socket.addEventListener("open", () => {
+  const connection = new WebSocket(`${scheme}//${location.host}/api/rooms/${roomId}/ws`);
+  socket = connection;
+  connection.addEventListener("open", () => {
+    if (socket !== connection) { connection.close(); return; }
     liveConnection = true;
+    reconnectAttempt = 0;
     statusNode.textContent = "End-to-end encrypted · Live connection";
-    if (joinedRoom) socket.send(JSON.stringify({ type: "join", sender: senderId, name: displayName }));
+    if (joinedRoom) {
+      connection.send(JSON.stringify({ type: "join", sender: senderId, name: displayName, heartbeat: true }));
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => {
+        if (socket === connection && connection.readyState === WebSocket.OPEN) {
+          try { connection.send(JSON.stringify({ type: "heartbeat" })); } catch { /* reconnect after close */ }
+        }
+      }, 15000);
+    }
   });
-  socket.addEventListener("message", (event) => {
+  connection.addEventListener("message", (event) => {
     let frame;
     try { frame = JSON.parse(event.data); } catch { return; }
     if (frame.type === "message") showMessage(frame.message);
@@ -167,22 +193,31 @@ function startUpdates() {
     }
     if (frame.type === "error") statusNode.textContent = frame.error;
   });
-  socket.addEventListener("close", () => {
-    if (socket?.readyState === WebSocket.CLOSED) {
+  connection.addEventListener("close", () => {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+    if (socket === connection) {
       liveConnection = false;
-      joinedRoom = false;
       if (roomId) {
-        $("participantCount").textContent = "Count unavailable";
-        $("participants").textContent = "Live participant list unavailable";
-        statusNode.textContent = "Live connection ended · Checking for messages every 2 seconds";
+        $("participantCount").textContent = "Reconnecting…";
+        $("participants").textContent = "Restoring live participant list";
+        statusNode.textContent = "Live connection ended · Reconnecting";
         refresh();
+        if (joinedRoom && !reconnectTimer) {
+          const delay = Math.min(1000 * (2 ** reconnectAttempt), 10000);
+          reconnectAttempt += 1;
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = undefined;
+            if (roomId && joinedRoom) startUpdates();
+          }, delay);
+        }
       }
     }
   });
-  socket.addEventListener("error", () => {
+  connection.addEventListener("error", () => {
     liveConnection = false;
-    $("participantCount").textContent = "Count unavailable";
-    $("participants").textContent = "Live participant list unavailable";
+    $("participantCount").textContent = "Reconnecting…";
+    $("participants").textContent = "Restoring live participant list";
     statusNode.textContent = "Live connection unavailable · Using periodic refresh";
   });
 }
@@ -201,7 +236,7 @@ $("identity").addEventListener("submit", (event) => {
     refresh();
     startUpdates();
   } else if (liveConnection && socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "join", sender: senderId, name: displayName }));
+    socket.send(JSON.stringify({ type: "join", sender: senderId, name: displayName, heartbeat: true }));
   }
 });
 

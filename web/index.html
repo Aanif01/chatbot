@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Private link chat</title>
-  <link rel="stylesheet" href="./style.css?v=20261029-2">
-  <script type="module" src="./app.js?v=20261029-2"></script>
+  <link rel="stylesheet" href="./style.css?v=20261029-4">
+  <script type="module" src="./app.js?v=20261029-4"></script>
 </head>
 <body>
   <main class="shell">
@@ -23,7 +23,7 @@
       <form id="identity" class="identity">
         <label for="displayName">Choose the name others will see</label>
         <div class="share-row"><input id="displayName" maxlength="24" autocomplete="nickname" placeholder="Your name" required><button id="join">Join conversation</button></div>
-        <p class="fine">Everyone in the room and the chat service can see this name while you’re connected. It is not an identity check.</p>
+        <p class="fine">Everyone in the room and the chat service can see this name while you’re connected. You appear in the online count after joining. Names are not verified identities.</p>
       </form>
       <div id="roomContent" class="hidden">
         <div class="room-head"><div><h2>Conversation <span id="participantCount" class="participant-count">0 here</span></h2><p id="participants" class="fine">Live participants appear here</p><p id="expiry" class="fine"></p></div><div class="room-actions"><button id="changeName" class="quiet">Your name</button><button id="roomAction" class="quiet danger">Leave room</button></div></div>

@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 const ROOM_TTL_MS = 60 * 60 * 1000;
+const PRESENCE_TTL_MS = 45 * 1000;
 const MAX_MESSAGES = 500;
 const MAX_CIPHERTEXT_LENGTH = 12_000;
 const ROOM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -204,6 +205,8 @@ export class ChatRoom extends DurableObject {
       if (frame.type === "join") {
         if (typeof frame.sender !== "string" || frame.sender.length < 1 || frame.sender.length > 64 ||
             typeof frame.name !== "string" || !frame.name.trim() || frame.name.trim().length > 24) throw new Error("Invalid name");
+      } else if (frame.type === "heartbeat") {
+        // Heartbeats carry no user data; they refresh the named connection lease.
       } else if (frame.type !== "message" || !validMessage(frame.message)) {
         throw new Error("Invalid message");
       }
@@ -218,8 +221,19 @@ export class ChatRoom extends DurableObject {
       return;
     }
     if (frame.type === "join") {
-      socket.serializeAttachment({ sender: frame.sender, name: frame.name.trim() });
+      socket.serializeAttachment({ sender: frame.sender, name: frame.name.trim(), heartbeatEnabled: frame.heartbeat === true, lastSeen: Date.now() });
       this.broadcastPresence();
+      await this.schedulePresenceAlarm(room.expiresAt);
+      return;
+    }
+    if (frame.type === "heartbeat") {
+      try {
+        const participant = socket.deserializeAttachment();
+        if (participant?.heartbeatEnabled && participant?.sender && participant?.name) {
+          socket.serializeAttachment({ ...participant, lastSeen: Date.now() });
+          await this.schedulePresenceAlarm(room.expiresAt);
+        }
+      } catch { /* this connection has not joined */ }
       return;
     }
     if (this.messageCount() >= MAX_MESSAGES) {
@@ -229,13 +243,17 @@ export class ChatRoom extends DurableObject {
     await this.storeAndBroadcast(frame.message);
   }
 
-  webSocketClose(socket, code, reason) {
+  async webSocketClose(socket, code, reason) {
     this.broadcastPresence(socket);
+    const room = await this.getActiveRoom();
+    if (room) await this.schedulePresenceAlarm(room.expiresAt);
   }
 
-  webSocketError(socket) {
+  async webSocketError(socket) {
     try { socket.close(1011, "Connection error"); } catch { /* already closed */ }
     this.broadcastPresence(socket);
+    const room = await this.getActiveRoom();
+    if (room) await this.schedulePresenceAlarm(room.expiresAt);
   }
 
   closeSockets(reason) {
@@ -245,7 +263,15 @@ export class ChatRoom extends DurableObject {
   }
 
   broadcastPresence(excludeSocket) {
-    const sockets = this.ctx.getWebSockets().filter((socket) => socket !== excludeSocket);
+    const now = Date.now();
+    const sockets = this.ctx.getWebSockets().filter((socket) => {
+      if (socket === excludeSocket) return false;
+      try {
+        const participant = socket.deserializeAttachment();
+        if (!participant?.sender || !participant?.name) return false;
+        return !participant.heartbeatEnabled || now - participant.lastSeen < PRESENCE_TTL_MS;
+      } catch { return false; }
+    });
     const participants = sockets.flatMap((socket) => {
       try {
         const participant = socket.deserializeAttachment();
@@ -260,6 +286,21 @@ export class ChatRoom extends DurableObject {
     }
   }
 
+  async schedulePresenceAlarm(expiresAt) {
+    const now = Date.now();
+    let nextAlarm = expiresAt;
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        const participant = socket.deserializeAttachment();
+        if (participant?.heartbeatEnabled && Number.isFinite(participant.lastSeen)) {
+          const staleAt = participant.lastSeen + PRESENCE_TTL_MS;
+          if (staleAt > now) nextAlarm = Math.min(nextAlarm, staleAt);
+        }
+      } catch { /* unjoined or legacy connection */ }
+    }
+    await this.ctx.storage.setAlarm(nextAlarm);
+  }
+
   endRoom(reason) {
     const frame = JSON.stringify({ type: "ended", reason });
     for (const socket of this.ctx.getWebSockets()) {
@@ -271,7 +312,22 @@ export class ChatRoom extends DurableObject {
   }
 
   async alarm() {
-    this.endRoom("expired");
-    await this.ctx.storage.deleteAll();
+    const room = await this.getActiveRoom();
+    if (!room) {
+      this.endRoom("expired");
+      await this.ctx.storage.deleteAll();
+      return;
+    }
+    const now = Date.now();
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        const participant = socket.deserializeAttachment();
+        if (participant?.heartbeatEnabled && now - participant.lastSeen >= PRESENCE_TTL_MS) {
+          socket.close(1000, "Presence timed out");
+        }
+      } catch { /* leave connections without a lease alone */ }
+    }
+    this.broadcastPresence();
+    await this.schedulePresenceAlarm(room.expiresAt);
   }
 }
