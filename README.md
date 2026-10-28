@@ -1,6 +1,22 @@
-# Private link chat — foundation
+# Quiet Chat
 
-This repository is a modular starting point for a two-person chat opened through a one-time, expiring link. It intentionally contains no user-specific or private source material.
+**Open the hosted chat:** [private-link-chat.quiet-chat.workers.dev](https://private-link-chat.quiet-chat.workers.dev)
+
+## Quick guide to share
+
+1. **Create a room.** Open the site, choose **Create a conversation link**, and enter your name.
+2. **Invite people.** Copy the invitation link from the room and send it privately to the people you want to join. Keep your own browser address private; it contains the room creator’s discard key.
+3. **Join.** Each invited person opens the invitation, chooses a display name, and joins. Anyone with the full invitation link can enter the room.
+4. **Chat and share media.** Send messages or attach an image, audio, or video file up to 1.5 MB. Images use **View once** by default; each participant can open the image once in their browser session. Other participants still get their own view.
+5. **End the room.** The creator chooses **Discard room** to end it for everyone and erase the room’s stored messages and media. Guests can choose **Leave room** to leave on their device. Rooms also expire after one hour.
+
+**Privacy in brief:** Messages and media are encrypted in the browser before upload. The service stores encrypted content until the room is discarded or expires. Names are not verified. View once limits repeat viewing in the same browser session, but it cannot prevent screenshots, recordings, or someone opening the link in another browser or device.
+
+---
+
+## Project notes
+
+This repository contains the modular foundation for a multi-participant chat opened through a temporary invitation link. It intentionally contains no user-specific or private source material.
 
 ## Privacy goal
 
