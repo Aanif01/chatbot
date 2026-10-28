@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Private link chat</title>
-  <link rel="stylesheet" href="./style.css?v=20261029-5">
-  <script type="module" src="./app.js?v=20261029-5"></script>
+  <link rel="stylesheet" href="./style.css?v=20261029-6">
+  <script type="module" src="./app.js?v=20261029-6"></script>
 </head>
 <body>
   <main class="shell">
@@ -31,6 +31,7 @@
         <div class="room-head"><div><h2>Conversation <span id="participantCount" class="participant-count">0 here</span></h2><p id="participants" class="fine">Live participants appear here</p><p id="expiry" class="fine"></p></div><div class="room-actions"><button id="changeName" class="quiet">Your name</button><button id="roomAction" class="quiet danger">Leave room</button></div></div>
         <div id="shareBox" class="share hidden"><label for="shareLink">Share this invitation link privately</label><div class="share-row"><input id="shareLink" readonly><button id="copy">Copy</button></div><p class="fine">Your browser’s address is the owner link. Keep it private; share only the invitation above. Encryption and owner keys stay in the link fragment and never reach the server.</p></div>
         <div id="messages" class="messages" aria-live="polite"></div>
+        <div id="replyingTo" class="replying-to hidden" role="status"><div><strong id="replyingName"></strong><span id="replyingText"></span></div><button id="cancelReply" type="button" class="quiet">Cancel</button></div>
         <form id="sendForm" class="composer"><textarea id="message" maxlength="8000" placeholder="Write a message…" required></textarea><button>Send</button></form>
         <p id="status" class="fine" role="status"></p>
       </div>

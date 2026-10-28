@@ -73,6 +73,16 @@ button:disabled { opacity: .65; cursor: wait; }
 .bubble { max-width: 82%; padding: 10px 13px; border-radius: 14px 14px 14px 4px; background: #f1f5f1; color: #263e33; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bubble.mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: #e6f3e9; }
 .bubble .who { margin-bottom: 3px; color: #819087; font-size: 10px; font-weight: 650; }
+.reply-quote { display: grid; gap: 2px; margin: 0 0 7px; padding: 6px 8px; border-left: 2px solid #78a98a; border-radius: 0 6px 6px 0; background: #ffffffa8; color: #5d7065; font-size: 11px; }
+.reply-quote strong { font-size: 10px; }
+.reply-quote span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-message { display: block; margin: 7px 0 -3px auto; padding: 4px 7px; border: 1px solid #dce8dd; background: transparent; color: #60766a; font-size: 10px; }
+.reply-message:hover { background: #e4eee5; color: var(--ink); }
+.replying-to { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 13px; padding: 9px 11px; border-left: 3px solid #4d8c68; border-radius: 6px; background: #f1f6f1; color: #5d7065; font-size: 11px; }
+.replying-to > div { display: grid; min-width: 0; gap: 2px; }
+.replying-to strong { color: #315a41; }
+.replying-to span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replying-to button { padding: 6px 9px; }
 .composer { display: flex; align-items: end; gap: 9px; margin-top: 14px; }
 .composer textarea { flex: 1; min-height: 45px; max-height: 140px; resize: vertical; padding: 12px; border: 1px solid #dce5de; border-radius: 10px; color: var(--ink); font: inherit; font-size: 13px; }
 .composer textarea::placeholder { color: #9aa69f; }

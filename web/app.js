@@ -20,6 +20,7 @@ let liveConnection = false;
 let displayName = sessionStorage.getItem("chat-name") || "";
 let participantNames = new Map();
 let joinedRoom = false;
+let replyTarget;
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -61,29 +62,67 @@ function showMessage(message) {
   decrypt(message).then((plaintext) => {
     let text = plaintext;
     let name = participantNames.get(message.sender) || "Guest";
+    let reply;
     try {
       const content = JSON.parse(plaintext);
       if (typeof content.text === "string" && typeof content.name === "string") {
         text = content.text;
         name = content.name;
+        if (content.reply && typeof content.reply.id === "string" && typeof content.reply.text === "string") {
+          reply = {
+            id: content.reply.id,
+            name: typeof content.reply.name === "string" ? content.reply.name : "Guest",
+            text: content.reply.text,
+          };
+        }
       }
     } catch { /* older messages contained plain text */ }
-    makeBubble(text, message.sender === senderId, name);
+    makeBubble(text, message.sender === senderId, name, message.id, reply);
   }).catch(() => {
     statusNode.textContent = "A message could not be decrypted with this link.";
   });
 }
-function makeBubble(text, mine, name) {
+function makeBubble(text, mine, name, messageId, reply) {
   const bubble = document.createElement("div");
   bubble.className = `bubble${mine ? " mine" : ""}`;
   const who = document.createElement("div");
   who.className = "who";
   who.textContent = mine ? `You · ${name}` : name;
+  bubble.append(who);
+  if (reply) {
+    const quote = document.createElement("div");
+    quote.className = "reply-quote";
+    const quotedName = document.createElement("strong");
+    quotedName.textContent = `Reply to ${reply.name}`;
+    const quotedText = document.createElement("span");
+    quotedText.textContent = reply.text;
+    quote.append(quotedName, quotedText);
+    bubble.append(quote);
+  }
   const body = document.createElement("div");
   body.textContent = text;
-  bubble.append(who, body);
+  bubble.append(body);
+  const replyButton = document.createElement("button");
+  replyButton.type = "button";
+  replyButton.className = "reply-message";
+  replyButton.textContent = "Reply";
+  replyButton.addEventListener("click", () => setReplyTarget({ id: messageId, name, text }));
+  bubble.append(replyButton);
   messagesNode.append(bubble);
   messagesNode.scrollTop = messagesNode.scrollHeight;
+}
+function setReplyTarget(target) {
+  replyTarget = target;
+  $("replyingName").textContent = `Replying to ${target.name}`;
+  $("replyingText").textContent = target.text.length > 180 ? `${target.text.slice(0, 180)}…` : target.text;
+  $("replyingTo").classList.remove("hidden");
+  $("message").focus();
+}
+function clearReply() {
+  replyTarget = undefined;
+  $("replyingName").textContent = "";
+  $("replyingText").textContent = "";
+  $("replyingTo").classList.add("hidden");
 }
 async function refresh() {
   if (!roomId) return;
@@ -130,6 +169,7 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   if (!keepFragment) history.replaceState(null, "", location.pathname);
   messagesNode.replaceChildren();
   seen.clear();
+  clearReply();
   participantNames.clear();
   $("participantCount").textContent = "0 here";
   $("participants").textContent = "";
@@ -285,7 +325,15 @@ $("sendForm").addEventListener("submit", async (event) => {
   const text = input.value.trim();
   if (!text) return;
   try {
-    const encrypted = await encrypt(JSON.stringify({ text, name: displayName }));
+    const content = { text, name: displayName };
+    if (replyTarget) {
+      content.reply = {
+        id: replyTarget.id,
+        name: replyTarget.name,
+        text: replyTarget.text.length > 180 ? `${replyTarget.text.slice(0, 180)}…` : replyTarget.text,
+      };
+    }
+    const encrypted = await encrypt(JSON.stringify(content));
     const message = { ...encrypted, sender: senderId };
     if (liveConnection && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "message", message }));
@@ -293,9 +341,12 @@ $("sendForm").addEventListener("submit", async (event) => {
       await api(`/api/rooms/${roomId}/messages`, { method: "POST", body: JSON.stringify(message) });
     }
     input.value = "";
+    clearReply();
     if (!liveConnection) await refresh();
   } catch (error) { statusNode.textContent = error.message; }
 });
+
+$("cancelReply").addEventListener("click", clearReply);
 
 $("roomAction").addEventListener("click", async () => {
   if (!ownerPrivateKey) {
