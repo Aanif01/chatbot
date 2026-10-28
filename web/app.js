@@ -13,6 +13,9 @@ let seen = new Set();
 let pollTimer;
 let socket;
 let liveConnection = false;
+let displayName = sessionStorage.getItem("chat-name") || "";
+let participantNames = new Map();
+let joinedRoom = false;
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -44,16 +47,27 @@ async function configureRoom(id, rawKey) {
 function showMessage(message) {
   if (seen.has(message.id)) return;
   seen.add(message.id);
-  decrypt(message).then((text) => makeBubble(text, message.sender === senderId)).catch(() => {
+  decrypt(message).then((plaintext) => {
+    let text = plaintext;
+    let name = participantNames.get(message.sender) || "Guest";
+    try {
+      const content = JSON.parse(plaintext);
+      if (typeof content.text === "string" && typeof content.name === "string") {
+        text = content.text;
+        name = content.name;
+      }
+    } catch { /* older messages contained plain text */ }
+    makeBubble(text, message.sender === senderId, name);
+  }).catch(() => {
     statusNode.textContent = "A message could not be decrypted with this link.";
   });
 }
-function makeBubble(text, mine) {
+function makeBubble(text, mine, name) {
   const bubble = document.createElement("div");
   bubble.className = `bubble${mine ? " mine" : ""}`;
   const who = document.createElement("div");
   who.className = "who";
-  who.textContent = mine ? "You" : "Guest";
+  who.textContent = mine ? `You · ${name}` : name;
   const body = document.createElement("div");
   body.textContent = text;
   bubble.append(who, body);
@@ -81,8 +95,9 @@ function showRoom({ share = false } = {}) {
   welcome.classList.add("hidden");
   chat.classList.remove("hidden");
   if (share) $("shareBox").classList.remove("hidden");
-  refresh();
-  startUpdates();
+  $("identity").classList.remove("hidden");
+  $("roomContent").classList.add("hidden");
+  $("displayName").value = displayName;
 }
 function cleanRoom(message) {
   clearInterval(pollTimer);
@@ -92,10 +107,16 @@ function cleanRoom(message) {
   liveConnection = false;
   roomId = undefined;
   key = undefined;
+  joinedRoom = false;
   oldSocket?.close();
   history.replaceState(null, "", location.pathname);
   messagesNode.replaceChildren();
   seen.clear();
+  participantNames.clear();
+  $("participantCount").textContent = "0 here";
+  $("participants").textContent = "";
+  $("identity").classList.remove("hidden");
+  $("roomContent").classList.add("hidden");
   $("shareLink").value = "";
   $("message").value = "";
   $("expiry").textContent = "";
@@ -114,11 +135,19 @@ function startUpdates() {
   socket.addEventListener("open", () => {
     liveConnection = true;
     statusNode.textContent = "End-to-end encrypted · Live connection";
+    if (joinedRoom) socket.send(JSON.stringify({ type: "join", sender: senderId, name: displayName }));
   });
   socket.addEventListener("message", (event) => {
     let frame;
     try { frame = JSON.parse(event.data); } catch { return; }
     if (frame.type === "message") showMessage(frame.message);
+    if (frame.type === "presence") {
+      participantNames = new Map(frame.participants.map((person) => [person.sender, person.name]));
+      $("participantCount").textContent = `${frame.participants.length} here`;
+      $("participants").textContent = frame.participants.length
+        ? `Here now: ${frame.participants.map((person) => person.name).join(", ")}`
+        : "No one connected";
+    }
     if (frame.type === "ended") {
       const notice = frame.reason === "expired"
         ? "This conversation expired. Its link and messages have been cleared from this page."
@@ -130,7 +159,10 @@ function startUpdates() {
   socket.addEventListener("close", () => {
     if (socket?.readyState === WebSocket.CLOSED) {
       liveConnection = false;
+      joinedRoom = false;
       if (roomId) {
+        $("participantCount").textContent = "Count unavailable";
+        $("participants").textContent = "Live participant list unavailable";
         statusNode.textContent = "Live connection ended · Checking for messages every 2 seconds";
         refresh();
       }
@@ -138,9 +170,37 @@ function startUpdates() {
   });
   socket.addEventListener("error", () => {
     liveConnection = false;
+    $("participantCount").textContent = "Count unavailable";
+    $("participants").textContent = "Live participant list unavailable";
     statusNode.textContent = "Live connection unavailable · Using periodic refresh";
   });
 }
+
+$("identity").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = $("displayName").value.trim().replace(/\s+/g, " ");
+  if (!name) return;
+  displayName = name.slice(0, 24);
+  sessionStorage.setItem("chat-name", displayName);
+  $("identity").classList.add("hidden");
+  $("roomContent").classList.remove("hidden");
+  if (!joinedRoom) {
+    joinedRoom = true;
+    $("participantCount").textContent = "Connecting…";
+    refresh();
+    startUpdates();
+  } else if (liveConnection && socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "join", sender: senderId, name: displayName }));
+  }
+});
+
+$("changeName").addEventListener("click", () => {
+  $("displayName").value = displayName;
+  $("join").textContent = "Update name";
+  $("roomContent").classList.add("hidden");
+  $("identity").classList.remove("hidden");
+  $("displayName").focus();
+});
 
 $("create").addEventListener("click", async () => {
   const button = $("create");
@@ -170,7 +230,7 @@ $("sendForm").addEventListener("submit", async (event) => {
   const text = input.value.trim();
   if (!text) return;
   try {
-    const encrypted = await encrypt(text);
+    const encrypted = await encrypt(JSON.stringify({ text, name: displayName }));
     const message = { ...encrypted, sender: senderId };
     if (liveConnection && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "message", message }));

@@ -45,8 +45,13 @@ button:disabled { opacity: .65; cursor: wait; }
 .card > button { margin: 9px 0 11px; }
 .fine { color: #89978f !important; font-size: 11px !important; line-height: 1.55 !important; }
 .hidden { display: none !important; }
+.identity { display: grid; gap: 10px; }
+.identity label { color: #334d40; font-size: 13px; font-weight: 700; }
+.identity input { flex: 1; min-width: 0; padding: 11px 12px; border: 1px solid #dce5de; border-radius: 9px; color: var(--ink); font: inherit; font-size: 13px; }
+.participant-count { padding: 4px 8px; border-radius: 999px; background: #edf5ee; color: #4f755f; font-size: 10px; font-weight: 650; letter-spacing: 0; white-space: nowrap; }
 .room-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: -29px -29px 0; padding: 23px 28px 19px; border-bottom: 1px solid #edf1ed; background: linear-gradient(110deg, #fbfdfb, #f6faf6); }
 .room-head > div { min-width: 0; }
+.room-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .room-head h2 { display: flex; align-items: center; gap: 9px; margin: 0 0 5px; font-size: 17px; }
 .room-head h2::before { width: 8px; height: 8px; border-radius: 50%; background: #51a875; box-shadow: 0 0 0 4px #e7f4eb; content: ""; }
 .room-head .fine { margin: 0; }

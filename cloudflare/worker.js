@@ -155,14 +155,18 @@ export class ChatRoom extends DurableObject {
   }
 
   async webSocketMessage(socket, rawMessage) {
-    let payload;
+    let frame;
     try {
       if (typeof rawMessage !== "string" || rawMessage.length > MAX_CIPHERTEXT_LENGTH + 1024) throw new Error("Invalid frame");
-      const frame = JSON.parse(rawMessage);
-      if (frame.type !== "message" || !validMessage(frame.message)) throw new Error("Invalid message");
-      payload = frame.message;
+      frame = JSON.parse(rawMessage);
+      if (frame.type === "join") {
+        if (typeof frame.sender !== "string" || frame.sender.length < 1 || frame.sender.length > 64 ||
+            typeof frame.name !== "string" || !frame.name.trim() || frame.name.trim().length > 24) throw new Error("Invalid name");
+      } else if (frame.type !== "message" || !validMessage(frame.message)) {
+        throw new Error("Invalid message");
+      }
     } catch {
-      socket.send(JSON.stringify({ type: "error", error: "Invalid encrypted message" }));
+      socket.send(JSON.stringify({ type: "error", error: "Invalid chat data" }));
       return;
     }
 
@@ -171,24 +175,46 @@ export class ChatRoom extends DurableObject {
       socket.close(1008, "Room expired");
       return;
     }
+    if (frame.type === "join") {
+      socket.serializeAttachment({ sender: frame.sender, name: frame.name.trim() });
+      this.broadcastPresence();
+      return;
+    }
     if (this.messageCount() >= MAX_MESSAGES) {
       socket.send(JSON.stringify({ type: "error", error: "Room message limit reached" }));
       return;
     }
-    await this.storeAndBroadcast(payload);
+    await this.storeAndBroadcast(frame.message);
   }
 
   webSocketClose(socket, code, reason) {
     socket.close(code, reason);
+    this.broadcastPresence();
   }
 
   webSocketError(socket) {
     socket.close(1011, "Connection error");
+    this.broadcastPresence();
   }
 
   closeSockets(reason) {
     for (const socket of this.ctx.getWebSockets()) {
       try { socket.close(1000, reason); } catch { /* already closed */ }
+    }
+  }
+
+  broadcastPresence() {
+    const participants = this.ctx.getWebSockets().flatMap((socket) => {
+      try {
+        const participant = socket.deserializeAttachment();
+        return participant?.sender && participant?.name
+          ? [{ sender: participant.sender, name: participant.name }]
+          : [];
+      } catch { return []; }
+    });
+    const frame = JSON.stringify({ type: "presence", participants });
+    for (const socket of this.ctx.getWebSockets()) {
+      try { socket.send(frame); } catch { socket.close(1011, "Presence update failed"); }
     }
   }
 
