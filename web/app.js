@@ -146,9 +146,11 @@ async function renderMedia(bubble, media) {
     if (!response.ok) throw new Error("Media is unavailable");
     const encrypted = await response.arrayBuffer();
     const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(media.nonce) }, key, encrypted);
-    const blob = new Blob([clear], { type: media.type });
-    const objectUrl = URL.createObjectURL(blob);
-    mediaUrls.add(objectUrl);
+    const isImage = media.type.startsWith("image/");
+    const objectUrl = isImage
+      ? `data:${media.type};base64,${bytesToBase64(new Uint8Array(clear))}`
+      : URL.createObjectURL(new Blob([clear], { type: media.type }));
+    if (!isImage) mediaUrls.add(objectUrl);
     const preview = media.type.startsWith("image/") ? document.createElement("img")
       : media.type.startsWith("video/") ? document.createElement("video") : document.createElement("audio");
     preview.className = "media-preview";
@@ -187,9 +189,8 @@ async function openViewOnceImage(bubble, media, button) {
     if (!response.ok) throw new Error(response.status === 410 ? "This image was already viewed." : "This image is no longer available.");
     const encrypted = await response.arrayBuffer();
     const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(media.nonce) }, key, encrypted);
-    const objectUrl = URL.createObjectURL(new Blob([clear], { type: media.type }));
+    const objectUrl = `data:${media.type};base64,${bytesToBase64(new Uint8Array(clear))}`;
     onceViewerUrl = objectUrl;
-    mediaUrls.add(objectUrl);
     button.textContent = "Opened · view once";
     showImageViewer(objectUrl, true);
   } catch (error) {
@@ -213,7 +214,7 @@ function closeImageViewer() {
   if (viewer.open) viewer.close();
   $("viewerImage").removeAttribute("src");
   if (onceViewerUrl) {
-    URL.revokeObjectURL(onceViewerUrl);
+    if (onceViewerUrl.startsWith("blob:")) URL.revokeObjectURL(onceViewerUrl);
     mediaUrls.delete(onceViewerUrl);
     onceViewerUrl = undefined;
   }
@@ -512,7 +513,7 @@ $("closeViewer").addEventListener("click", closeImageViewer);
 $("mediaViewer").addEventListener("click", (event) => { if (event.target === $("mediaViewer")) closeImageViewer(); });
 $("mediaViewer").addEventListener("close", () => {
   if (onceViewerUrl) {
-    URL.revokeObjectURL(onceViewerUrl);
+    if (onceViewerUrl.startsWith("blob:")) URL.revokeObjectURL(onceViewerUrl);
     mediaUrls.delete(onceViewerUrl);
     onceViewerUrl = undefined;
   }

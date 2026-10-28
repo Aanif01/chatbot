@@ -96,7 +96,7 @@ const server = createServer(async (req, res) => {
     const relativePath = relative(webRoot, file);
     if (relativePath.startsWith(`..${sep}`) || relativePath === ".." || relativePath.startsWith(sep)) return json(res, 403, { error: "Forbidden" });
     const content = await readFile(file);
-    res.writeHead(200, { "content-type": mime[extname(file)] ?? "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" });
+    res.writeHead(200, { "content-type": mime[extname(file)] ?? "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" });
     res.end(content);
   } catch (error) {
     if (error?.message === "body-too-large") return json(res, 413, { error: "Request is too large" });
