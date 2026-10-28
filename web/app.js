@@ -22,6 +22,8 @@ let participantNames = new Map();
 let joinedRoom = false;
 let replyTarget;
 let mediaUrls = new Set();
+let viewerTimer;
+let onceViewerUrl;
 const MAX_MEDIA_BYTES = 1_500_000;
 
 function bytesToBase64(bytes) {
@@ -108,7 +110,10 @@ function makeBubble(text, mine, name, messageId, reply, media) {
     body.textContent = text;
     bubble.append(body);
   }
-  if (media) renderMedia(bubble, media);
+  if (media) {
+    bubble.dataset.mediaId = media.id;
+    renderMedia(bubble, media);
+  }
   const replyButton = document.createElement("button");
   replyButton.type = "button";
   replyButton.className = "reply-message";
@@ -119,6 +124,19 @@ function makeBubble(text, mine, name, messageId, reply, media) {
   messagesNode.scrollTop = messagesNode.scrollHeight;
 }
 async function renderMedia(bubble, media) {
+  if (media.viewOnce) {
+    const viewButton = document.createElement("button");
+    viewButton.type = "button";
+    viewButton.className = "view-once-button";
+    viewButton.textContent = "View image once";
+    viewButton.addEventListener("click", () => openViewOnceImage(bubble, media, viewButton));
+    bubble.insertBefore(viewButton, bubble.querySelector(".reply-message"));
+    const hint = document.createElement("div");
+    hint.className = "media-caption";
+    hint.textContent = "Opens once · removed from the room after opening";
+    bubble.insertBefore(hint, bubble.querySelector(".reply-message"));
+    return;
+  }
   const placeholder = document.createElement("div");
   placeholder.className = "media-loading";
   placeholder.textContent = "Decrypting media…";
@@ -143,12 +161,71 @@ async function renderMedia(bubble, media) {
       if (preview instanceof HTMLVideoElement) preview.disablePictureInPicture = true;
     }
     placeholder.replaceWith(preview);
+    if (preview instanceof HTMLImageElement) {
+      preview.tabIndex = 0;
+      preview.setAttribute("role", "button");
+      preview.setAttribute("aria-label", "Open image larger");
+      preview.addEventListener("click", () => showImageViewer(objectUrl, false));
+      preview.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") showImageViewer(objectUrl, false); });
+    }
     const caption = document.createElement("div");
     caption.className = "media-caption";
     caption.textContent = `${media.name || "Shared media"} · ${formatBytes(media.size)}`;
     preview.after(caption);
   } catch {
     placeholder.textContent = "This media is unavailable.";
+  }
+}
+async function openViewOnceImage(bubble, media, button) {
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = "Opening…";
+  try {
+    const response = await fetch(`/api/rooms/${roomId}/media/${media.id}/consume`, {
+      method: "POST", headers: { "x-viewer-id": senderId }, cache: "no-store",
+    });
+    if (!response.ok) throw new Error(response.status === 410 ? "This image was already viewed." : "This image is no longer available.");
+    const encrypted = await response.arrayBuffer();
+    const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(media.nonce) }, key, encrypted);
+    const objectUrl = URL.createObjectURL(new Blob([clear], { type: media.type }));
+    onceViewerUrl = objectUrl;
+    mediaUrls.add(objectUrl);
+    button.textContent = "Opened · view once";
+    showImageViewer(objectUrl, true);
+  } catch (error) {
+    button.textContent = error.message;
+    button.classList.add("view-once-ended");
+  }
+}
+function showImageViewer(objectUrl, viewOnce) {
+  const viewer = $("mediaViewer");
+  clearTimeout(viewerTimer);
+  $("viewerImage").src = objectUrl;
+  $("viewerLabel").textContent = viewOnce ? "View once · 10 seconds" : "Image preview";
+  $("viewerNotice").textContent = viewOnce ? "The room copy has been removed. Screenshots and external cameras can’t be blocked." : "";
+  if (!viewer.open) viewer.showModal();
+  if (viewOnce) viewerTimer = setTimeout(closeImageViewer, 10_000);
+}
+function closeImageViewer() {
+  clearTimeout(viewerTimer);
+  viewerTimer = undefined;
+  const viewer = $("mediaViewer");
+  if (viewer.open) viewer.close();
+  $("viewerImage").removeAttribute("src");
+  if (onceViewerUrl) {
+    URL.revokeObjectURL(onceViewerUrl);
+    mediaUrls.delete(onceViewerUrl);
+    onceViewerUrl = undefined;
+  }
+}
+function markOnceImageViewed(mediaId) {
+  const bubble = [...messagesNode.querySelectorAll(".bubble")].find((node) => node.dataset.mediaId === mediaId);
+  if (!bubble) return;
+  const button = bubble.querySelector(".view-once-button");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Already viewed";
+    button.classList.add("view-once-ended");
   }
 }
 function formatBytes(bytes) { return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`; }
@@ -209,6 +286,7 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   oldSocket?.close();
   for (const url of mediaUrls) URL.revokeObjectURL(url);
   mediaUrls.clear();
+  closeImageViewer();
   if (!keepFragment) history.replaceState(null, "", location.pathname);
   messagesNode.replaceChildren();
   seen.clear();
@@ -223,6 +301,8 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   $("shareLink").value = "";
   $("message").value = "";
   $("mediaInput").value = "";
+  $("viewOnceOption").classList.add("hidden");
+  $("viewOnce").checked = true;
   $("mediaHint").textContent = "Attach an image, audio, or video · up to 1.5 MB · encrypted before upload";
   $("expiry").textContent = "";
   $("shareBox").classList.add("hidden");
@@ -265,6 +345,7 @@ function startUpdates() {
     let frame;
     try { frame = JSON.parse(event.data); } catch { return; }
     if (frame.type === "message") showMessage(frame.message);
+    if (frame.type === "media-viewed" && frame.viewerId !== senderId) markOnceImageViewed(frame.mediaId);
     if (frame.type === "presence") {
       participantNames = new Map(frame.participants.map((person) => [person.sender, person.name]));
       $("participantCount").textContent = `${frame.participants.length} here`;
@@ -378,12 +459,13 @@ $("sendForm").addEventListener("submit", async (event) => {
       const nonce = crypto.getRandomValues(new Uint8Array(12));
       const encryptedBytes = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, await file.arrayBuffer());
       const mediaId = crypto.randomUUID();
-      const upload = await fetch(`/api/rooms/${roomId}/media/${mediaId}`, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: encryptedBytes, cache: "no-store" });
+      const viewOnce = file.type.startsWith("image/") && $("viewOnce").checked;
+      const upload = await fetch(`/api/rooms/${roomId}/media/${mediaId}`, { method: "PUT", headers: { "content-type": "application/octet-stream", ...(viewOnce ? { "x-media-view-once": "true" } : {}) }, body: encryptedBytes, cache: "no-store" });
       if (!upload.ok) {
         const result = await upload.json().catch(() => ({}));
         throw new Error(result.error || "Could not upload media.");
       }
-      content.media = { id: mediaId, nonce: bytesToBase64(nonce), name: file.name.slice(0, 180), type: file.type, size: file.size };
+      content.media = { id: mediaId, nonce: bytesToBase64(nonce), name: file.name.slice(0, 180), type: file.type, size: file.size, viewOnce };
     }
     if (replyTarget) {
       content.reply = {
@@ -401,6 +483,8 @@ $("sendForm").addEventListener("submit", async (event) => {
     }
     input.value = "";
     $("mediaInput").value = "";
+    $("viewOnceOption").classList.add("hidden");
+    $("viewOnce").checked = true;
     $("mediaHint").textContent = "Attach an image, audio, or video · up to 1.5 MB · encrypted before upload";
     clearReply();
     if (!liveConnection) await refresh();
@@ -417,8 +501,23 @@ $("mediaInput").addEventListener("change", () => {
     $("mediaInput").value = "";
     $("mediaHint").textContent = "Media must be 1.5 MB or smaller.";
   } else {
+    const isImage = file.type.startsWith("image/");
+    $("viewOnceOption").classList.toggle("hidden", !isImage);
+    $("viewOnce").checked = isImage;
     $("mediaHint").textContent = `${file.name} · ${formatBytes(file.size)} ready to send`;
   }
+});
+
+$("closeViewer").addEventListener("click", closeImageViewer);
+$("mediaViewer").addEventListener("click", (event) => { if (event.target === $("mediaViewer")) closeImageViewer(); });
+$("mediaViewer").addEventListener("close", () => {
+  if (onceViewerUrl) {
+    URL.revokeObjectURL(onceViewerUrl);
+    mediaUrls.delete(onceViewerUrl);
+    onceViewerUrl = undefined;
+  }
+  clearTimeout(viewerTimer);
+  $("viewerImage").removeAttribute("src");
 });
 
 $("cancelReply").addEventListener("click", clearReply);

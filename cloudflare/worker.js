@@ -29,7 +29,7 @@ function base64ToBytes(value) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const match = url.pathname.match(/^\/api\/rooms\/([^/]+)(\/messages|\/ws|\/media\/[^/]+)?$/);
+    const match = url.pathname.match(/^\/api\/rooms\/([^/]+)(\/messages|\/ws|\/media\/[^/]+(?:\/consume)?)?$/);
 
     if (url.pathname === "/api/rooms" && request.method === "POST") {
       const roomId = crypto.randomUUID();
@@ -90,6 +90,7 @@ export class ChatRoom extends DurableObject {
         created_at INTEGER NOT NULL
       )
     `);
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS media_once (id TEXT PRIMARY KEY)`);
   }
 
   async fetch(request) {
@@ -114,10 +115,13 @@ export class ChatRoom extends DurableObject {
         try {
           this.ctx.storage.sql.exec("INSERT INTO media_files (id, data, created_at) VALUES (?, ?, ?)", mediaId, data, Date.now());
         } catch { return json({ error: "Could not store this media" }, 409); }
+        if (request.headers.get("x-media-view-once") === "true") {
+          this.ctx.storage.sql.exec("INSERT INTO media_once (id) VALUES (?)", mediaId);
+        }
         return json({ stored: true }, 201);
       }
       if (request.method === "GET") {
-        const row = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ?", mediaId).toArray()[0];
+        const row = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ? AND id NOT IN (SELECT id FROM media_once)", mediaId).toArray()[0];
         if (!row) return json({ error: "Media not found or room ended" }, 404);
         return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
       }
@@ -125,6 +129,20 @@ export class ChatRoom extends DurableObject {
         this.ctx.storage.sql.exec("DELETE FROM media_files WHERE id = ?", mediaId);
         return json({ deleted: true });
       }
+    }
+    const consumeMatch = url.pathname.match(/^\/api\/rooms\/[^/]+\/media\/([0-9a-f-]{36})\/consume$/i);
+    if (consumeMatch && request.method === "POST") {
+      const [, mediaId] = consumeMatch;
+      const once = this.ctx.storage.sql.exec("SELECT id FROM media_once WHERE id = ?", mediaId).toArray()[0];
+      if (!once) return json({ error: "This image is not available for view-once access" }, 404);
+      const row = this.ctx.storage.sql.exec("DELETE FROM media_files WHERE id = ? RETURNING data", mediaId).toArray()[0];
+      this.ctx.storage.sql.exec("DELETE FROM media_once WHERE id = ?", mediaId);
+      if (!row) return json({ error: "This image was already viewed" }, 410);
+      const frame = JSON.stringify({ type: "media-viewed", mediaId, viewerId: request.headers.get("x-viewer-id") || "" });
+      for (const socket of this.ctx.getWebSockets()) {
+        try { socket.send(frame); } catch { socket.close(1011, "Delivery failed"); }
+      }
+      return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
     }
     if (request.method === "POST" && url.pathname.endsWith("/messages")) {
       let payload;
