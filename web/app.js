@@ -29,7 +29,11 @@ function base64ToBytes(value) {
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { ...(options.body ? { "content-type": "application/json" } : {}), ...options.headers }, cache: "no-store" });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed");
+  if (!response.ok) {
+    const error = new Error(data.error || "Request failed");
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 async function encrypt(text) {
@@ -102,8 +106,9 @@ function showRoom({ share = false } = {}) {
   $("identity").classList.remove("hidden");
   $("roomContent").classList.add("hidden");
   $("displayName").value = displayName;
+  $("roomAction").textContent = ownerPrivateKey ? "Discard room" : "Leave room";
 }
-function cleanRoom(message) {
+function cleanRoom(message, { keepFragment = false } = {}) {
   clearInterval(pollTimer);
   pollTimer = undefined;
   const oldSocket = socket;
@@ -114,12 +119,13 @@ function cleanRoom(message) {
   ownerPrivateKey = undefined;
   joinedRoom = false;
   oldSocket?.close();
-  history.replaceState(null, "", location.pathname);
+  if (!keepFragment) history.replaceState(null, "", location.pathname);
   messagesNode.replaceChildren();
   seen.clear();
   participantNames.clear();
   $("participantCount").textContent = "0 here";
   $("participants").textContent = "";
+  $("discardConfirm").classList.add("hidden");
   $("identity").classList.remove("hidden");
   $("roomContent").classList.add("hidden");
   $("shareLink").value = "";
@@ -201,7 +207,6 @@ $("identity").addEventListener("submit", (event) => {
 
 $("changeName").addEventListener("click", () => {
   $("displayName").value = displayName;
-  $("roomAction").textContent = ownerPrivateKey ? "Discard room" : "Leave room";
   $("join").textContent = "Update name";
   $("roomContent").classList.add("hidden");
   $("identity").classList.remove("hidden");
@@ -257,29 +262,61 @@ $("sendForm").addEventListener("submit", async (event) => {
 
 $("roomAction").addEventListener("click", async () => {
   if (!ownerPrivateKey) {
-    if (confirm("Leave this conversation on this device? The room will stay open for everyone else.")) {
-      cleanRoom("You left the conversation on this device. The room is still open for others.");
-    }
+    cleanRoom("You left the conversation on this device. The room is still open for others.");
     return;
   }
-  if (!confirm("Discard this room for everyone and delete its messages?")) return;
+  $("discardConfirm").classList.remove("hidden");
+});
+
+$("cancelDiscard").addEventListener("click", () => {
+  $("discardConfirm").classList.add("hidden");
+});
+
+$("confirmDiscard").addEventListener("click", async () => {
+  const button = $("confirmDiscard");
+  button.disabled = true;
   try {
     const signature = await crypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" }, ownerPrivateKey, encoder.encode(`discard:${roomId}`),
     );
     await api(`/api/rooms/${roomId}`, { method: "DELETE", body: JSON.stringify({ signature: bytesToBase64(new Uint8Array(signature)) }) });
     cleanRoom("This conversation was discarded. Its link and messages have been cleared from this page.");
-  } catch (error) { statusNode.textContent = error.message; }
+  } catch (error) {
+    statusNode.textContent = error.message;
+    $("discardConfirm").classList.add("hidden");
+  } finally { button.disabled = false; }
 });
 
-const fragment = location.hash.slice(1);
-if (fragment) {
+async function openLinkedRoom() {
+  const fragment = location.hash.slice(1);
+  if (!fragment) return;
   const [id, rawKey, rawOwnerKey] = fragment.split(".");
   const separator = fragment.indexOf(".");
-  if (separator > 0 && rawKey) {
-    configureRoom(id, rawKey, rawOwnerKey).then(() => showRoom()).catch(() => { statusNode.textContent = "This link is invalid."; chat.classList.remove("hidden"); });
-  } else {
+  if (separator <= 0 || !rawKey) {
     statusNode.textContent = "This link is invalid.";
     chat.classList.remove("hidden");
+    return;
+  }
+  try {
+    await configureRoom(id, rawKey, rawOwnerKey);
+    await api(`/api/rooms/${id}`);
+    showRoom();
+  } catch (error) {
+    if (error.status === 404 || error.message === "Room not found or expired") {
+      cleanRoom("This invitation has expired or the room has been discarded.");
+    } else if (roomId) {
+      cleanRoom("This invitation is unavailable. Check your connection or return to the hosted chat page to create a new room.");
+    } else {
+      statusNode.textContent = "This link is invalid.";
+      chat.classList.remove("hidden");
+    }
   }
 }
+
+if (location.hash) openLinkedRoom();
+window.addEventListener("hashchange", () => {
+  if (!location.hash) return;
+  const targetId = location.hash.slice(1).split(".")[0];
+  if (roomId && roomId !== targetId) cleanRoom("Opening the linked conversation…", { keepFragment: true });
+  if (!roomId) openLinkedRoom();
+});

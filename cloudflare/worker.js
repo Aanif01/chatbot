@@ -49,7 +49,10 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
-    return env.ASSETS.fetch(request);
+    const asset = await env.ASSETS.fetch(request);
+    const headers = new Headers(asset.headers);
+    headers.set("cache-control", "no-cache");
+    return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
   },
 };
 
@@ -227,13 +230,12 @@ export class ChatRoom extends DurableObject {
   }
 
   webSocketClose(socket, code, reason) {
-    socket.close(code, reason);
-    this.broadcastPresence();
+    this.broadcastPresence(socket);
   }
 
   webSocketError(socket) {
-    socket.close(1011, "Connection error");
-    this.broadcastPresence();
+    try { socket.close(1011, "Connection error"); } catch { /* already closed */ }
+    this.broadcastPresence(socket);
   }
 
   closeSockets(reason) {
@@ -242,8 +244,9 @@ export class ChatRoom extends DurableObject {
     }
   }
 
-  broadcastPresence() {
-    const participants = this.ctx.getWebSockets().flatMap((socket) => {
+  broadcastPresence(excludeSocket) {
+    const sockets = this.ctx.getWebSockets().filter((socket) => socket !== excludeSocket);
+    const participants = sockets.flatMap((socket) => {
       try {
         const participant = socket.deserializeAttachment();
         return participant?.sender && participant?.name
@@ -252,7 +255,7 @@ export class ChatRoom extends DurableObject {
       } catch { return []; }
     });
     const frame = JSON.stringify({ type: "presence", participants });
-    for (const socket of this.ctx.getWebSockets()) {
+    for (const socket of sockets) {
       try { socket.send(frame); } catch { socket.close(1011, "Presence update failed"); }
     }
   }
