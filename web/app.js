@@ -24,7 +24,8 @@ let replyTarget;
 let mediaUrls = new Set();
 let viewerTimer;
 let onceViewerUrl;
-const MAX_MEDIA_BYTES = 1_500_000;
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+const MEDIA_HINT = "Take a photo or choose media · up to 20 MB per file · encrypted before upload";
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -146,11 +147,8 @@ async function renderMedia(bubble, media) {
     if (!response.ok) throw new Error("Media is unavailable");
     const encrypted = await response.arrayBuffer();
     const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(media.nonce) }, key, encrypted);
-    const isImage = media.type.startsWith("image/");
-    const objectUrl = isImage
-      ? `data:${media.type};base64,${bytesToBase64(new Uint8Array(clear))}`
-      : URL.createObjectURL(new Blob([clear], { type: media.type }));
-    if (!isImage) mediaUrls.add(objectUrl);
+    const objectUrl = URL.createObjectURL(new Blob([clear], { type: media.type }));
+    mediaUrls.add(objectUrl);
     const preview = media.type.startsWith("image/") ? document.createElement("img")
       : media.type.startsWith("video/") ? document.createElement("video") : document.createElement("audio");
     preview.className = "media-preview";
@@ -189,7 +187,8 @@ async function openViewOnceImage(bubble, media, button) {
     if (!response.ok) throw new Error(response.status === 410 ? "This image was already viewed." : "This image is no longer available.");
     const encrypted = await response.arrayBuffer();
     const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(media.nonce) }, key, encrypted);
-    const objectUrl = `data:${media.type};base64,${bytesToBase64(new Uint8Array(clear))}`;
+    const objectUrl = URL.createObjectURL(new Blob([clear], { type: media.type }));
+    mediaUrls.add(objectUrl);
     onceViewerUrl = objectUrl;
     button.textContent = "Opened · view once";
     showImageViewer(objectUrl, true);
@@ -203,7 +202,7 @@ function showImageViewer(objectUrl, viewOnce) {
   clearTimeout(viewerTimer);
   $("viewerImage").src = objectUrl;
   $("viewerLabel").textContent = viewOnce ? "View once · 10 seconds" : "Image preview";
-  $("viewerNotice").textContent = viewOnce ? "Your view is one-time. The encrypted room copy remains for other participants until the room ends." : "";
+  $("viewerNotice").textContent = viewOnce ? "This view is one-time per participant. Other participants get their own view. Screenshots and external recordings cannot be reliably blocked." : "";
   if (!viewer.open) viewer.showModal();
   if (viewOnce) viewerTimer = setTimeout(closeImageViewer, 10_000);
 }
@@ -292,9 +291,10 @@ function cleanRoom(message, { keepFragment = false } = {}) {
   $("shareLink").value = "";
   $("message").value = "";
   $("mediaInput").value = "";
+  $("cameraInput").value = "";
   $("viewOnceOption").classList.add("hidden");
   $("viewOnce").checked = true;
-  $("mediaHint").textContent = "Attach an image, audio, or video · up to 1.5 MB · encrypted before upload";
+  $("mediaHint").textContent = MEDIA_HINT;
   $("expiry").textContent = "";
   $("shareBox").classList.add("hidden");
   statusNode.textContent = "";
@@ -439,13 +439,13 @@ $("sendForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = $("message");
   const text = input.value.trim();
-  const file = $("mediaInput").files[0];
+  const file = $("cameraInput").files[0] || $("mediaInput").files[0];
   if (!text && !file) return;
   try {
     const content = { text, name: displayName };
     if (file) {
       if (!/^(image|audio|video)\//.test(file.type)) throw new Error("Choose an image, audio, or video file.");
-      if (file.size > MAX_MEDIA_BYTES) throw new Error("Media must be 1.5 MB or smaller.");
+      if (file.size > MAX_MEDIA_BYTES) throw new Error("Media must be 20 MB or smaller.");
       const nonce = crypto.getRandomValues(new Uint8Array(12));
       const encryptedBytes = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, await file.arrayBuffer());
       const mediaId = crypto.randomUUID();
@@ -473,30 +473,38 @@ $("sendForm").addEventListener("submit", async (event) => {
     }
     input.value = "";
     $("mediaInput").value = "";
+    $("cameraInput").value = "";
     $("viewOnceOption").classList.add("hidden");
     $("viewOnce").checked = true;
-    $("mediaHint").textContent = "Attach an image, audio, or video · up to 1.5 MB · encrypted before upload";
+    $("mediaHint").textContent = MEDIA_HINT;
     clearReply();
     if (!liveConnection) await refresh();
   } catch (error) { statusNode.textContent = error.message; }
 });
 
-$("mediaInput").addEventListener("change", () => {
-  const file = $("mediaInput").files[0];
+function mediaSelected(event) {
+  const file = event.currentTarget.files[0];
   if (!file) return;
   if (!/^(image|audio|video)\//.test(file.type)) {
-    $("mediaInput").value = "";
+    event.currentTarget.value = "";
     $("mediaHint").textContent = "Choose an image, audio, or video file.";
   } else if (file.size > MAX_MEDIA_BYTES) {
-    $("mediaInput").value = "";
-    $("mediaHint").textContent = "Media must be 1.5 MB or smaller.";
+    event.currentTarget.value = "";
+    $("mediaHint").textContent = "Media must be 20 MB or smaller.";
   } else {
+    const otherInput = event.currentTarget.id === "cameraInput" ? $("mediaInput") : $("cameraInput");
+    otherInput.value = "";
     const isImage = file.type.startsWith("image/");
     $("viewOnceOption").classList.toggle("hidden", !isImage);
     $("viewOnce").checked = isImage;
     $("mediaHint").textContent = `${file.name} · ${formatBytes(file.size)} ready to send`;
+    $("attachMenu").open = false;
   }
-});
+}
+$("mediaInput").addEventListener("change", mediaSelected);
+$("cameraInput").addEventListener("change", mediaSelected);
+$("chooseMedia").addEventListener("click", () => $("mediaInput").click());
+$("takePhoto").addEventListener("click", () => $("cameraInput").click());
 
 $("closeViewer").addEventListener("click", closeImageViewer);
 $("mediaViewer").addEventListener("click", (event) => { if (event.target === $("mediaViewer")) closeImageViewer(); });

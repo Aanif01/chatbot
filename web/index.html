@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Private link chat</title>
-  <link rel="stylesheet" href="./style.css?v=20261029-13">
-  <script type="module" src="./app.js?v=20261029-13"></script>
+  <link rel="stylesheet" href="./style.css?v=20261029-15">
+  <script type="module" src="./app.js?v=20261029-15"></script>
 </head>
 <body>
   <main class="shell">
@@ -32,9 +32,9 @@
         <div id="shareBox" class="share hidden"><label for="shareLink">Share this invitation link privately</label><div class="share-row"><input id="shareLink" readonly><button id="copy">Copy</button></div><p class="fine">Your browser’s address is the owner link. Keep it private; share only the invitation above. Encryption and owner keys stay in the link fragment and never reach the server.</p></div>
         <div id="messages" class="messages" aria-live="polite"></div>
         <div id="replyingTo" class="replying-to hidden" role="status"><div><strong id="replyingName"></strong><span id="replyingText"></span></div><button id="cancelReply" type="button" class="quiet">Cancel</button></div>
-        <form id="sendForm" class="composer"><label class="attach-button" for="mediaInput" aria-label="Attach image, audio, or video">＋<input id="mediaInput" type="file" accept="image/*,audio/*,video/*" hidden></label><textarea id="message" maxlength="8000" placeholder="Write a message…"></textarea><button id="sendButton">Send</button></form>
+        <form id="sendForm" class="composer"><details id="attachMenu" class="attach-menu"><summary class="attach-button" aria-label="Attach media">＋</summary><div class="attach-options"><button id="takePhoto" type="button" class="quiet">Take photo</button><button id="chooseMedia" type="button" class="quiet">Choose from gallery</button></div><input id="cameraInput" type="file" accept="image/*" capture="environment" hidden><input id="mediaInput" type="file" accept="image/*,audio/*,video/*" hidden></details><textarea id="message" maxlength="8000" placeholder="Write a message…"></textarea><button id="sendButton">Send</button></form>
         <label id="viewOnceOption" class="view-once-option hidden"><input id="viewOnce" type="checkbox" checked> View once <span>one opening per participant</span></label>
-        <p id="mediaHint" class="fine media-hint">Attach an image, audio, or video · up to 1.5 MB · encrypted before upload</p>
+        <p id="mediaHint" class="fine media-hint">Take a photo or choose media · up to 20 MB per file · encrypted before upload</p>
         <p id="status" class="fine" role="status"></p>
       </div>
     </section>

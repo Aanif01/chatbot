@@ -4,7 +4,9 @@ const ROOM_TTL_MS = 60 * 60 * 1000;
 const PRESENCE_TTL_MS = 45 * 1000;
 const MAX_MESSAGES = 500;
 const MAX_CIPHERTEXT_LENGTH = 12_000;
-const MAX_MEDIA_BYTES = 1_500_000;
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
+// SQLite limits an individual BLOB/row to 2 MB. Keep each encrypted chunk well below that.
+const MEDIA_CHUNK_BYTES = 1024 * 1024;
 const MAX_MEDIA_FILES = 30;
 const ROOM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -92,6 +94,7 @@ export class ChatRoom extends DurableObject {
     `);
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS media_once (id TEXT PRIMARY KEY)`);
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS media_once_views (media_id TEXT NOT NULL, viewer_id TEXT NOT NULL, viewed_at INTEGER NOT NULL, PRIMARY KEY (media_id, viewer_id))`);
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS media_chunks (media_id TEXT NOT NULL, chunk_index INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (media_id, chunk_index))`);
   }
 
   async fetch(request) {
@@ -108,26 +111,40 @@ export class ChatRoom extends DurableObject {
       const [, mediaId] = mediaMatch;
       if (request.method === "PUT") {
         const length = Number(request.headers.get("content-length") ?? 0);
-        if (length > MAX_MEDIA_BYTES) return json({ error: "Media must be 1.5 MB or smaller" }, 413);
+        if (length > MAX_MEDIA_BYTES + 16) return json({ error: "Media must be 20 MB or smaller" }, 413);
         const data = new Uint8Array(await request.arrayBuffer());
-        if (!data.byteLength || data.byteLength > MAX_MEDIA_BYTES) return json({ error: "Media must be 1.5 MB or smaller" }, 413);
+        if (!data.byteLength || data.byteLength > MAX_MEDIA_BYTES + 16) return json({ error: "Media must be 20 MB or smaller" }, 413);
         const total = this.ctx.storage.sql.exec("SELECT COUNT(*) AS total FROM media_files").toArray()[0].total;
         if (total >= MAX_MEDIA_FILES) return json({ error: "This room has reached its media limit" }, 429);
+        let inserted = false;
         try {
-          this.ctx.storage.sql.exec("INSERT INTO media_files (id, data, created_at) VALUES (?, ?, ?)", mediaId, data, Date.now());
-        } catch { return json({ error: "Could not store this media" }, 409); }
+          this.ctx.storage.sql.exec("INSERT INTO media_files (id, data, created_at) VALUES (?, ?, ?)", mediaId, new Uint8Array(), Date.now());
+          inserted = true;
+          for (let offset = 0, chunkIndex = 0; offset < data.byteLength; offset += MEDIA_CHUNK_BYTES, chunkIndex++) {
+            this.ctx.storage.sql.exec("INSERT INTO media_chunks (media_id, chunk_index, data) VALUES (?, ?, ?)", mediaId, chunkIndex, data.slice(offset, offset + MEDIA_CHUNK_BYTES));
+          }
+        } catch {
+          if (inserted) {
+            this.ctx.storage.sql.exec("DELETE FROM media_chunks WHERE media_id = ?", mediaId);
+            this.ctx.storage.sql.exec("DELETE FROM media_files WHERE id = ?", mediaId);
+          }
+          return json({ error: "Could not store this media" }, 409);
+        }
         if (request.headers.get("x-media-view-once") === "true") {
           this.ctx.storage.sql.exec("INSERT INTO media_once (id) VALUES (?)", mediaId);
         }
         return json({ stored: true }, 201);
       }
       if (request.method === "GET") {
-        const row = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ? AND id NOT IN (SELECT id FROM media_once)", mediaId).toArray()[0];
-        if (!row) return json({ error: "Media not found or room ended" }, 404);
-        return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+        const exists = this.ctx.storage.sql.exec("SELECT id FROM media_files WHERE id = ? AND id NOT IN (SELECT id FROM media_once)", mediaId).toArray()[0];
+        if (!exists) return json({ error: "Media not found or room ended" }, 404);
+        return this.mediaResponse(mediaId);
       }
       if (request.method === "DELETE") {
         this.ctx.storage.sql.exec("DELETE FROM media_files WHERE id = ?", mediaId);
+        this.ctx.storage.sql.exec("DELETE FROM media_chunks WHERE media_id = ?", mediaId);
+        this.ctx.storage.sql.exec("DELETE FROM media_once WHERE id = ?", mediaId);
+        this.ctx.storage.sql.exec("DELETE FROM media_once_views WHERE media_id = ?", mediaId);
         return json({ deleted: true });
       }
     }
@@ -140,10 +157,10 @@ export class ChatRoom extends DurableObject {
       if (!once) return json({ error: "This image is not available for view-once access" }, 404);
       const previousView = this.ctx.storage.sql.exec("SELECT 1 FROM media_once_views WHERE media_id = ? AND viewer_id = ?", mediaId, viewerId).toArray()[0];
       if (previousView) return json({ error: "You have already viewed this image" }, 410);
-      const row = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ?", mediaId).toArray()[0];
-      if (!row) return json({ error: "This image is no longer available" }, 404);
+      const exists = this.ctx.storage.sql.exec("SELECT id FROM media_files WHERE id = ?", mediaId).toArray()[0];
+      if (!exists) return json({ error: "This image is no longer available" }, 404);
       this.ctx.storage.sql.exec("INSERT INTO media_once_views (media_id, viewer_id, viewed_at) VALUES (?, ?, ?)", mediaId, viewerId, Date.now());
-      return new Response(row.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+      return this.mediaResponse(mediaId);
     }
     if (request.method === "POST" && url.pathname.endsWith("/messages")) {
       let payload;
@@ -196,6 +213,18 @@ export class ChatRoom extends DurableObject {
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO room_meta (id, expires_at) VALUES (1, ?)", expiresAt);
     await this.ctx.storage.setAlarm(expiresAt);
     return json({ expiresAt });
+  }
+
+  mediaResponse(mediaId) {
+    const legacy = this.ctx.storage.sql.exec("SELECT data FROM media_files WHERE id = ?", mediaId).toArray()[0];
+    const chunks = this.ctx.storage.sql.exec("SELECT data FROM media_chunks WHERE media_id = ? ORDER BY chunk_index", mediaId).toArray();
+    if (!legacy && !chunks.length) return json({ error: "Media not found or room ended" }, 404);
+    if (!chunks.length) return new Response(legacy.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+    const size = chunks.reduce((sum, chunk) => sum + chunk.data.byteLength, 0);
+    const combined = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { combined.set(chunk.data, offset); offset += chunk.data.byteLength; }
+    return new Response(combined, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   }
 
   async getActiveRoom() {
