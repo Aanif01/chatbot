@@ -35,6 +35,12 @@ function bytesToBase64(bytes) {
 function base64ToBytes(value) {
   return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
 }
+function requireRoomKey(expectedRoomId = roomId) {
+  if (!key || key.type !== "secret" || !expectedRoomId || roomId !== expectedRoomId) {
+    throw new Error("This conversation is no longer active. Reopen its invitation link to continue.");
+  }
+  return key;
+}
 async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { ...(options.body ? { "content-type": "application/json" } : {}), ...options.headers }, cache: "no-store" });
   const data = await response.json();
@@ -46,8 +52,9 @@ async function api(path, options = {}) {
   return data;
 }
 async function encrypt(text) {
+  const roomKey = requireRoomKey();
   const nonce = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, encoder.encode(text));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, roomKey, encoder.encode(text));
   return { ciphertext: bytesToBase64(new Uint8Array(ciphertext)), nonce: bytesToBase64(nonce) };
 }
 async function decrypt(message) {
@@ -441,22 +448,25 @@ $("sendForm").addEventListener("submit", async (event) => {
   const text = input.value.trim();
   const file = $("cameraInput").files[0] || $("mediaInput").files[0];
   if (!text && !file) return;
+  const activeRoomId = roomId;
   try {
+    const roomKey = requireRoomKey(activeRoomId);
     const content = { text, name: displayName };
     if (file) {
       if (!/^(image|audio|video)\//.test(file.type)) throw new Error("Choose an image, audio, or video file.");
       if (file.size > MAX_MEDIA_BYTES) throw new Error("Media must be 20 MB or smaller.");
       const nonce = crypto.getRandomValues(new Uint8Array(12));
-      const encryptedBytes = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, await file.arrayBuffer());
+      const encryptedBytes = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, roomKey, await file.arrayBuffer());
       const mediaId = crypto.randomUUID();
       const viewOnce = file.type.startsWith("image/") && $("viewOnce").checked;
-      const upload = await fetch(`/api/rooms/${roomId}/media/${mediaId}`, { method: "PUT", headers: { "content-type": "application/octet-stream", ...(viewOnce ? { "x-media-view-once": "true" } : {}) }, body: encryptedBytes, cache: "no-store" });
+      const upload = await fetch(`/api/rooms/${activeRoomId}/media/${mediaId}`, { method: "PUT", headers: { "content-type": "application/octet-stream", ...(viewOnce ? { "x-media-view-once": "true" } : {}) }, body: encryptedBytes, cache: "no-store" });
       if (!upload.ok) {
         const result = await upload.json().catch(() => ({}));
         throw new Error(result.error || "Could not upload media.");
       }
       content.media = { id: mediaId, nonce: bytesToBase64(nonce), name: file.name.slice(0, 180), type: file.type, size: file.size, viewOnce };
     }
+    requireRoomKey(activeRoomId);
     if (replyTarget) {
       content.reply = {
         id: replyTarget.id,
@@ -469,7 +479,7 @@ $("sendForm").addEventListener("submit", async (event) => {
     if (liveConnection && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "message", message }));
     } else {
-      await api(`/api/rooms/${roomId}/messages`, { method: "POST", body: JSON.stringify(message) });
+      await api(`/api/rooms/${activeRoomId}/messages`, { method: "POST", body: JSON.stringify(message) });
     }
     input.value = "";
     $("mediaInput").value = "";
