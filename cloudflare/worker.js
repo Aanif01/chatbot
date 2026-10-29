@@ -220,10 +220,11 @@ export class ChatRoom extends DurableObject {
     const chunks = this.ctx.storage.sql.exec("SELECT data FROM media_chunks WHERE media_id = ? ORDER BY chunk_index", mediaId).toArray();
     if (!legacy && !chunks.length) return json({ error: "Media not found or room ended" }, 404);
     if (!chunks.length) return new Response(legacy.data, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
-    const size = chunks.reduce((sum, chunk) => sum + chunk.data.byteLength, 0);
+    const binaryChunks = chunks.map(({ data }) => new Uint8Array(data));
+    const size = binaryChunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
     const combined = new Uint8Array(size);
     let offset = 0;
-    for (const chunk of chunks) { combined.set(chunk.data, offset); offset += chunk.data.byteLength; }
+    for (const chunk of binaryChunks) { combined.set(chunk, offset); offset += chunk.byteLength; }
     return new Response(combined, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   }
 
