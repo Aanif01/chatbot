@@ -42,14 +42,22 @@ body::before {
 body::after {
   position: fixed;
   z-index: -1;
-  inset: -12%;
+  inset: -8%;
   background:
-    radial-gradient(ellipse at 18% 22%, #9b4c2920 0, transparent 30%),
-    radial-gradient(ellipse at 82% 68%, #75613c16 0, transparent 34%),
+    radial-gradient(ellipse 19% 3% at 76% 17%, #050506 88%, transparent 100%),
+    radial-gradient(ellipse 12% 8% at 77% 14%, #09090a 90%, transparent 100%),
+    radial-gradient(ellipse 10% 13% at 76% 25%, #080809 88%, transparent 100%),
+    radial-gradient(ellipse 25% 23% at 77% 48%, #070708 82%, transparent 100%),
+    radial-gradient(ellipse 16% 11% at 58% 6%, #d8d4cc1b 0, transparent 72%),
+    radial-gradient(ellipse 18% 12% at 85% 11%, #e1ded717 0, transparent 72%),
+    radial-gradient(ellipse 22% 15% at 91% 24%, #bcb9b318 0, transparent 72%),
+    radial-gradient(ellipse 16% 12% at 57% 29%, #d6d1c610 0, transparent 74%),
+    radial-gradient(ellipse 23% 8% at 22% 100%, #b3834b20 0, transparent 76%),
+    linear-gradient(180deg, transparent 64%, #020203 96%),
     radial-gradient(ellipse at center, transparent 36%, #0505068a 100%);
   pointer-events: none;
   content: "";
-  animation: ambient-drift 28s ease-in-out infinite alternate;
+  animation: ambient-drift 42s ease-in-out infinite alternate;
   will-change: transform;
 }
 .shell { width: min(720px, calc(100% - 36px)); margin: 0 auto; padding: 62px 0 36px; }
